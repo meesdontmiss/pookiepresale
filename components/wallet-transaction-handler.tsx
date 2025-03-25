@@ -38,6 +38,7 @@ const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcX
 // Log environment variables at runtime
 console.log("Environment variables loaded:");
 console.log("- TREASURY_WALLET:", TREASURY_WALLET);
+console.log("- RPC_URL:", process.env.NEXT_PUBLIC_SOLANA_RPC_URL);
 
 interface TransactionHandlerProps {
   minAmount?: number
