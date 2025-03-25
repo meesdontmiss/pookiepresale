@@ -624,10 +624,22 @@ export default function Home() {
                   href="https://X.com/pookiethepeng"
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => playClickSound()}
-                  className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-primary"
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-background/80 border-2 border-primary/70 text-primary hover:bg-primary/10 animate-glow"
+                  onClick={(e) => {
+                    // Stop event propagation to prevent the 3D scene from capturing it
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Play sound
+                    playClickSound();
+                    
+                    // Navigate after a tiny delay to ensure sound plays
+                    setTimeout(() => {
+                      window.open("https://X.com/pookiethepeng", "_blank");
+                    }, 10);
+                  }}
                 >
-                  <TwitterIcon size={16} />
+                  <TwitterIcon size={16} className="text-primary" />
                 </a>
               </motion.div>
               
