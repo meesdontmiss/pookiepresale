@@ -1,11 +1,16 @@
 'use client'
 
 import { Suspense } from 'react'
+import { useState, useEffect } from "react"
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { TwitterIcon, MessageCircleIcon } from 'lucide-react'
 import PreSaleForm from '@/components/presale/presale-form'
 import PresaleStats from '@/components/presale/presale-stats'
+import { ToastContainer, toast } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
+import { playSound } from "@/hooks/use-audio"
 
 // Dynamically import the 3D model component with no SSR
 const PookieModel = dynamic(
@@ -13,9 +18,123 @@ const PookieModel = dynamic(
   { ssr: false }
 )
 
+interface Notification {
+  id: number
+  amount: number
+  wallet: string
+  timestamp: number
+}
+
 export default function MobilePage() {
+  const [mounted, setMounted] = useState(false)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Add notification system for mobile
+  useEffect(() => {
+    if (!mounted) return
+    
+    // Initialize Supabase client for real-time updates
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Supabase credentials not available')
+      return
+    }
+    
+    const { createClient } = require('@supabase/supabase-js')
+    const supabase = createClient(supabaseUrl, supabaseKey)
+    
+    // Subscribe to new confirmed contributions
+    const subscription = supabase
+      .channel('public:contributions')
+      .on('INSERT', (payload: any) => {
+        const newContribution = payload.new
+        
+        if (newContribution && newContribution.status === 'confirmed') {
+          // Show toast notification
+          showContributionToast(
+            formatWalletAddress(newContribution.wallet_address),
+            newContribution.amount
+          )
+          
+          // Play notification sound
+          playSound('/sounds/notification.wav')
+        }
+      })
+      .subscribe()
+    
+    // Listen for custom contribution notifications
+    const handleDirectContribution = (event: CustomEvent) => {
+      if (event.detail) {
+        console.log('Mobile: Direct contribution notification received:', event.detail)
+        
+        // Show toast notification immediately
+        showContributionToast(
+          event.detail.wallet,
+          event.detail.amount
+        )
+        
+        // Play notification sound for immediate feedback
+        playSound('/sounds/notification.wav')
+      }
+    }
+    
+    // Add event listener for direct contributions
+    window.addEventListener('pookie-new-contribution', handleDirectContribution as EventListener)
+    
+    // Cleanup function
+    return () => {
+      subscription.unsubscribe()
+      window.removeEventListener('pookie-new-contribution', handleDirectContribution as EventListener)
+    }
+  }, [mounted])
+  
+  // Format wallet address for display
+  const formatWalletAddress = (address: string): string => {
+    if (!address) return ''
+    return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`
+  }
+  
+  // Function to show toast notification for contributions
+  const showContributionToast = (wallet: string, amount: number) => {
+    toast.success(
+      <div className="flex flex-col">
+        <span className="font-bold">{wallet}</span>
+        <span>just contributed {amount} SOL</span>
+      </div>,
+      {
+        position: "top-right",
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        progress: undefined,
+      }
+    )
+  }
+
   return (
     <div className="flex flex-col items-center min-h-screen w-full px-4 py-6 overflow-hidden">
+      {/* Toast Container for Notifications */}
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
+      />
+      
       {/* Header */}
       <header className="w-full flex justify-between items-center mb-6">
         <div className="flex items-center">
@@ -26,12 +145,15 @@ export default function MobilePage() {
           />
           <h1 className="text-2xl font-bold text-green-400 text-glow">$POOKIE</h1>
         </div>
-        <Link 
-          href="/"
-          className="text-sm text-green-400 underline"
-        >
-          Switch to Desktop
-        </Link>
+        <div className="flex items-center gap-2">
+          <WalletMultiButton className="bg-green-500 text-white rounded-md px-3 py-1 h-8 text-xs" />
+          <Link 
+            href="/"
+            className="text-sm text-green-400 underline"
+          >
+            Desktop
+          </Link>
+        </div>
       </header>
 
       {/* 3D Model Container - Smaller for mobile */}

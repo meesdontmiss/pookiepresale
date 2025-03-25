@@ -247,9 +247,34 @@ export default function Home() {
       })
       .subscribe();
     
+    // Listen for custom contribution notifications from contribution form
+    const handleDirectContribution = (event: CustomEvent) => {
+      if (event.detail) {
+        console.log('Direct contribution notification received:', event.detail);
+        
+        // Add the notification immediately
+        setNotifications(prev => [
+          {
+            id: Date.now(),
+            amount: event.detail.amount,
+            wallet: event.detail.wallet,
+            timestamp: event.detail.timestamp
+          },
+          ...prev.slice(0, 4) // Keep only the latest 5 notifications
+        ]);
+        
+        // Play notification sound for immediate feedback
+        playSound('/sounds/notification.wav');
+      }
+    };
+    
+    // Add event listener for direct contributions
+    window.addEventListener('pookie-new-contribution', handleDirectContribution as EventListener);
+    
     // Cleanup function
     return () => {
       subscription.unsubscribe();
+      window.removeEventListener('pookie-new-contribution', handleDirectContribution as EventListener);
     };
   }, [mounted]);
 

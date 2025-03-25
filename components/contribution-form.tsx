@@ -40,6 +40,12 @@ const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
 // Treasury wallet to monitor
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
 
+// Format wallet address for display
+const formatWalletAddress = (address: string): string => {
+  if (!address) return '';
+  return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
+};
+
 interface ContributionFormProps {
   maxContribution: number
   tier: "core" | "public"
@@ -255,6 +261,16 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         
         // Calculate token amounts
         const { baseTokens, totalTokens } = calculateTokens(numericAmount, 0);
+        
+        // Manually trigger a live notification for immediate feedback
+        const notificationEvent = new CustomEvent('pookie-new-contribution', { 
+          detail: {
+            wallet: formatWalletAddress(walletAddress),
+            amount: numericAmount,
+            timestamp: Date.now()
+          }
+        });
+        window.dispatchEvent(notificationEvent);
         
         useToastToast({
           title: "Contribution successful!",
