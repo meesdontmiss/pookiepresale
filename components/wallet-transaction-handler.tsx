@@ -78,7 +78,7 @@ class ProxyConnection extends Connection {
   }
 
   // Override the required methods to use our proxy
-  async getLatestBlockhash(commitment?: any) {
+  override async getLatestBlockhash(commitment?: any): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     const result = await this._fetch('getLatestBlockhash', [{ commitment: commitment || 'finalized' }]);
     return {
       blockhash: result.blockhash,
@@ -86,22 +86,41 @@ class ProxyConnection extends Connection {
     };
   }
   
-  async getBlockHeight() {
-    return this._fetch('getBlockHeight', [{ commitment: 'finalized' }]);
+  override async getBlockHeight(commitment?: any): Promise<number> {
+    return this._fetch('getBlockHeight', [{ commitment: commitment || 'finalized' }]);
   }
   
-  async confirmTransaction(signature: any, commitment: any) {
-    if (typeof signature === 'string') {
-      const result = await this._fetch('confirmTransaction', [signature, { commitment }]);
-      return { value: { err: result?.err || null } };
-    } else {
-      // Handle object format with blockhash
-      const result = await this._fetch('confirmTransaction', [{
-        signature: signature.signature,
-        blockhash: signature.blockhash,
-        lastValidBlockHeight: signature.lastValidBlockHeight || 0
-      }, commitment]);
-      return { value: { err: result?.err || null } };
+  override async confirmTransaction(
+    signatureOrConfirmOptions: any,
+    commitment?: any
+  ): Promise<any> {
+    try {
+      let params;
+      
+      if (typeof signatureOrConfirmOptions === 'string') {
+        params = [signatureOrConfirmOptions, { commitment: commitment || 'confirmed' }];
+      } else {
+        params = [{
+          signature: signatureOrConfirmOptions.signature,
+          blockhash: signatureOrConfirmOptions.blockhash,
+          lastValidBlockHeight: signatureOrConfirmOptions.lastValidBlockHeight
+        }, commitment || 'confirmed'];
+      }
+      
+      const result = await this._fetch('confirmTransaction', params);
+      
+      // Return in the format expected by wallet-adapter
+      return {
+        context: { slot: 0 },
+        value: { err: result?.err || null }
+      };
+    } catch (error) {
+      console.error('Error confirming transaction:', error);
+      // Return a default response structure on error
+      return {
+        context: { slot: 0 },
+        value: { err: 'Failed to confirm transaction' }
+      };
     }
   }
 }
@@ -207,79 +226,40 @@ export default function WalletTransactionHandler({
         })
       );
 
-      // Get blockhash using our proxy connection
-      try {
-        const { blockhash } = await proxyConnection.getLatestBlockhash('finalized');
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
-        console.log("Got blockhash:", blockhash.substring(0, 10) + "...");
-      } catch (error) {
-        console.error("Failed to get recent blockhash:", error);
-        toast({
-          title: "Network error",
-          description: "Failed to connect to Solana network. Please try again later.",
-          variant: "destructive"
-        });
-        if (onError) onError(error instanceof Error ? error : new Error("Failed to get recent blockhash"));
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Send transaction
+      // Handle transaction directly with wallet adapter
       console.log("Sending transaction...");
       let signature;
+      
       try {
-        // Use our proxy connection
-        signature = await sendTransaction(transaction, proxyConnection);
+        // Use default connection from wallet adapter
+        signature = await sendTransaction(transaction, defaultConnection);
         console.log("Transaction sent:", signature);
+        
+        // Transaction successful
+        setTransactionSignature(signature);
+        
+        // Verify transaction in backend
+        await verifyTransaction(signature, publicKey.toString(), amount);
+        
+        playSound(SUCCESS_SOUND_PATH, 0.3);
+        
+        toast({
+          title: "Contribution successful!",
+          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+        });
+
+        if (onSuccess) onSuccess(signature, amount);
       } catch (error) {
-        console.error("Failed to send transaction:", error);
+        console.error("Transaction error:", error);
         toast({
           title: "Transaction failed",
           description: error instanceof Error ? error.message : "Please try again later",
           variant: "destructive"
         });
         if (onError) onError(error instanceof Error ? error : new Error("Failed to send transaction"));
-        setIsSubmitting(false);
-        return;
       }
-
-      // Transaction successful
-      setTransactionSignature(signature);
-      
-      try {
-        // Confirm transaction
-        const confirmation = await proxyConnection.confirmTransaction({
-          signature,
-          blockhash: transaction.recentBlockhash!,
-          lastValidBlockHeight: await proxyConnection.getBlockHeight(),
-        }, 'confirmed');
-        
-        if (confirmation.value.err) {
-          throw new Error(`Transaction failed: ${confirmation.value.err}`);
-        }
-        
-        // Log success
-        console.log("Transaction confirmed:", signature);
-        
-        // Verify transaction in backend
-        await verifyTransaction(signature, publicKey.toString(), amount);
-      } catch (verifyError) {
-        console.warn("Verification warning:", verifyError);
-        // Continue even if verification has issues
-      }
-      
-      playSound(SUCCESS_SOUND_PATH, 0.3);
-      
-      toast({
-        title: "Contribution successful!",
-        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
-      });
-
-      if (onSuccess) onSuccess(signature, amount);
-
-    } catch (error: unknown) {
-      console.error("Transaction error:", error);
+    } catch (error) {
+      console.error("Transaction setup error:", error);
       toast({
         title: "Transaction failed",
         description: error instanceof Error ? error.message : "Please try again later",
