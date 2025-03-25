@@ -45,10 +45,19 @@ export default function WalletTransactionHandler({
   onError,
   tier = 'public'
 }: TransactionHandlerProps) {
-  const { connected, publicKey, sendTransaction } = useWallet()
+  const { connected, publicKey, sendTransaction, wallet, connecting, disconnect } = useWallet()
   const [amount, setAmount] = useState<number>(defaultAmount)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
+  
+  // Log wallet state on mount and changes
+  useEffect(() => {
+    console.log("Wallet state changed:");
+    console.log("- Connected:", connected);
+    console.log("- Connecting:", connecting);
+    console.log("- Wallet:", wallet?.adapter.name);
+    console.log("- PublicKey:", publicKey?.toString());
+  }, [connected, connecting, wallet, publicKey]);
   
   // Validate amount
   const isValidAmount = amount >= minAmount && amount <= maxAmount
@@ -172,8 +181,12 @@ export default function WalletTransactionHandler({
       console.log("Transaction created with instruction:", instruction);
       console.log("Transaction created, sending to wallet for signing...");
       
-      // Send the transaction
-      const signature = await sendTransaction(transaction, connection);
+      // Send the transaction with explicit options to trigger wallet popup
+      const signature = await sendTransaction(transaction, connection, {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 5
+      });
       console.log("Transaction signed and sent:", signature);
       
       // Wait for confirmation with increased timeout

@@ -35,7 +35,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   // @solana/wallet-adapter-wallets includes all the adapters but supports tree shaking
   // so only the wallets you configure here will be compiled into your application
-  const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], [network])
+  const wallets = useMemo(
+    () => [
+      new PhantomWalletAdapter(), 
+      new SolflareWalletAdapter({
+        network
+      })
+    ],
+    [network]
+  );
 
   // Return children directly if still on server
   if (!mounted) {
@@ -47,7 +55,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       commitment: "confirmed",
       confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
     }}>
-      <SolanaWalletProvider wallets={wallets} autoConnect>
+      <SolanaWalletProvider wallets={wallets} autoConnect={true}>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>
     </ConnectionProvider>
