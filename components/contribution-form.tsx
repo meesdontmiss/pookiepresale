@@ -308,8 +308,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
             <div>
               <p className="font-medium">Token Information</p>
               <p className="mt-1 text-muted-foreground">
-                Your POOKIE tokens will be available at token launch. For each SOL you contribute, 
-                you'll receive 1,000,000 POOKIE tokens.
+                Your POOKIE tokens will be available at token launch. Tokens will be distributed based on your contribution amount.
               </p>
             </div>
           </div>
