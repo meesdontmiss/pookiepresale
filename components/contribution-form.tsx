@@ -70,23 +70,37 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
       const baseUrl = window.location.origin;
       const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
       
-      // Get treasury balance
-      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
-      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+      // Get treasury balance - try multiple times if we get zero
+      let retryCount = 0;
+      let solBalance = 0;
+      
+      while (solBalance <= 0 && retryCount < 3) {
+        const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
+        solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+        
+        if (solBalance <= 0) {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          retryCount++;
+        }
+      }
       
       console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
       
-      // Update the progress bar based on the actual wallet balance
-      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
-        detail: {
-          raised: solBalance,
-          cap: 75, // Keep the cap at 75 SOL
-          contributors: null // We don't know the exact contributor count from the wallet balance
-        }
-      });
-      window.dispatchEvent(event);
+      // Only dispatch event if we got a valid balance
+      if (solBalance > 0) {
+        // Update the progress bar based on the actual wallet balance
+        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+          detail: {
+            raised: solBalance,
+            cap: 75, // Keep the cap at 75 SOL
+            contributors: null // We don't know the exact contributor count from the wallet balance
+          }
+        });
+        window.dispatchEvent(event);
+      }
       
-      return solBalance;
+      return solBalance > 0 ? solBalance : null;
     } catch (error) {
       console.error('Error monitoring treasury balance:', error);
       return null;
@@ -105,20 +119,28 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
       
       const data = await response.json();
       if (data.success) {
-        // Dispatch a custom event with the latest stats to update progress bar
-        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
-          detail: {
-            // Use treasury balance if available, otherwise use API data
-            raised: treasuryBalance || Number(data.stats.total_raised || 0),
-            cap: Number(data.stats.cap || 75),
-            contributors: Number(data.stats.contributors || 0)
-          }
-        });
-        window.dispatchEvent(event);
-        
-        console.log('Stats refreshed after contribution:', 
-          treasuryBalance ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : data.stats);
+        // Only dispatch if we have valid data
+        if (treasuryBalance > 0 || Number(data.stats.total_raised || 0) > 0) {
+          // Dispatch a custom event with the latest stats to update progress bar
+          const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+            detail: {
+              // Use treasury balance if available, otherwise use API data
+              raised: treasuryBalance || Number(data.stats.total_raised || 0),
+              cap: Number(data.stats.cap || 75),
+              contributors: Number(data.stats.contributors || 0)
+            }
+          });
+          window.dispatchEvent(event);
+          
+          console.log('Stats refreshed after contribution:', 
+            treasuryBalance ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : data.stats);
+        }
       }
+      
+      // Set up a follow-up check after a short delay to ensure the stats are updated
+      setTimeout(async () => {
+        await monitorTreasuryBalance();
+      }, 5000);
     } catch (error) {
       console.error('Error refreshing presale stats:', error);
     }

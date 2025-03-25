@@ -54,11 +54,38 @@ export default function Home() {
     cap: 75,
     contributors: 0
   });
+  
+  // Use a ref to store the last valid non-zero raised amount
+  const lastValidRaisedRef = useRef<number>(0);
 
   // Set mounted to true on component mount to prevent hydration mismatch
   useEffect(() => {
     setMounted(true)
   }, [])
+  
+  // Safely update presale stats to prevent flashing to zero
+  const safelyUpdateStats = (newStats: Partial<typeof presaleStats>) => {
+    setPresaleStats(prev => {
+      // If we're getting a new raised amount of 0 but we have a better value, use the better value
+      if (newStats.raised !== undefined && newStats.raised <= 0 && lastValidRaisedRef.current > 0) {
+        return {
+          ...prev,
+          ...newStats,
+          raised: lastValidRaisedRef.current
+        };
+      }
+      
+      // If we're getting a positive raised amount, update our reference
+      if (newStats.raised !== undefined && newStats.raised > 0) {
+        lastValidRaisedRef.current = newStats.raised;
+      }
+      
+      return {
+        ...prev,
+        ...newStats
+      };
+    });
+  };
   
   // Fetch initial presale stats
   useEffect(() => {
@@ -71,14 +98,26 @@ export default function Home() {
         
         const data = await response.json();
         if (data.success) {
-          setPresaleStats({
-            raised: Number(data.stats.total_raised || 0),
+          const raisedAmount = Number(data.stats.total_raised || 0);
+          
+          // Store the value if it's valid
+          if (raisedAmount > 0) {
+            lastValidRaisedRef.current = raisedAmount;
+          }
+          
+          safelyUpdateStats({
+            raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
           });
         }
       } catch (error) {
         console.error('Error fetching presale stats:', error);
+        
+        // In case of error, don't reset the raised amount to 0
+        if (lastValidRaisedRef.current > 0) {
+          safelyUpdateStats({});
+        }
       }
     };
     
@@ -93,7 +132,7 @@ export default function Home() {
   // Function to monitor the treasury wallet balance directly
   const checkTreasuryWalletBalance = async () => {
     try {
-      if (typeof window === 'undefined') return;
+      if (typeof window === 'undefined') return null;
       
       const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
       const baseUrl = window.location.origin;
@@ -108,13 +147,17 @@ export default function Home() {
       
       console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
       
-      // Update presale stats with the real treasury balance
-      setPresaleStats(prev => ({
-        ...prev,
-        raised: solBalance
-      }));
+      // Only update if we got a valid non-zero balance
+      if (solBalance > 0) {
+        lastValidRaisedRef.current = solBalance;
+        
+        // Update presale stats with the real treasury balance
+        safelyUpdateStats({
+          raised: solBalance
+        });
+      }
       
-      return solBalance;
+      return solBalance > 0 ? solBalance : null;
     } catch (error) {
       console.error('Error checking treasury balance:', error);
       return null;
@@ -171,14 +214,26 @@ export default function Home() {
         
         const data = await response.json();
         if (data.success) {
-          setPresaleStats({
-            raised: Number(data.stats.total_raised || 0),
+          const raisedAmount = Number(data.stats.total_raised || 0);
+          
+          // Update our reference if we got a valid value
+          if (raisedAmount > 0) {
+            lastValidRaisedRef.current = raisedAmount;
+          }
+          
+          safelyUpdateStats({
+            raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
           });
         }
       } catch (error) {
         console.error('Error fetching presale stats:', error);
+        
+        // In case of error, don't reset the raised amount to 0
+        if (lastValidRaisedRef.current > 0) {
+          safelyUpdateStats({});
+        }
       }
     };
 
@@ -186,11 +241,22 @@ export default function Home() {
     const handleProgressUpdate = (event: CustomEvent) => {
       if (event.detail) {
         console.log('Progress update event received:', event.detail);
-        setPresaleStats({
-          raised: event.detail.raised || 0,
+        
+        // Only update if we got a valid non-zero raised amount
+        const newRaised = event.detail.raised || 0;
+        
+        if (newRaised > 0) {
+          lastValidRaisedRef.current = newRaised;
+        }
+        
+        safelyUpdateStats({
+          raised: newRaised > 0 ? newRaised : lastValidRaisedRef.current,
           cap: event.detail.cap || 75,
           contributors: event.detail.contributors || 0
         });
+        
+        // After receiving an update event, verify with actual wallet balance
+        setTimeout(checkTreasuryWalletBalance, 5000);
       }
     };
 

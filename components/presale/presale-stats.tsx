@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 
 interface PresaleStats {
   total_raised: number
@@ -18,6 +18,9 @@ export default function PresaleStats() {
     contributors: 0
   })
   const [loading, setLoading] = useState(true)
+  
+  // Use a ref to store the last valid non-zero raised amount to prevent flashing to 0
+  const lastValidRaisedRef = useRef<number>(0)
 
   // Calculate progress percentage
   const progressPercent = Math.min(100, Math.round((stats.total_raised / stats.cap) * 100))
@@ -37,17 +40,46 @@ export default function PresaleStats() {
       
       console.log(`PresaleStats: Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
       
-      // Update stats with the real treasury balance
-      setStats(prev => ({
-        ...prev,
-        total_raised: solBalance
-      }));
+      // Only update if the value is valid (non-zero) and different from current
+      if (solBalance > 0) {
+        lastValidRaisedRef.current = solBalance;
+        
+        // Update stats with the real treasury balance
+        setStats(prev => ({
+          ...prev,
+          total_raised: solBalance
+        }));
+      }
       
-      return solBalance;
+      return solBalance > 0 ? solBalance : null;
     } catch (error) {
       console.error('Error checking treasury balance:', error);
       return null;
     }
+  };
+
+  // Function to update stats safely, preventing downgrades to zero
+  const safelyUpdateStats = (newStats: Partial<PresaleStats>) => {
+    setStats(prev => {
+      // If we're getting a new raised amount of 0 but we have a better value, use the better value
+      if (newStats.total_raised !== undefined && newStats.total_raised <= 0 && lastValidRaisedRef.current > 0) {
+        return {
+          ...prev,
+          ...newStats,
+          total_raised: lastValidRaisedRef.current
+        };
+      }
+      
+      // If we're getting a positive raised amount, update our reference
+      if (newStats.total_raised !== undefined && newStats.total_raised > 0) {
+        lastValidRaisedRef.current = newStats.total_raised;
+      }
+      
+      return {
+        ...prev,
+        ...newStats
+      };
+    });
   };
 
   useEffect(() => {
@@ -62,15 +94,27 @@ export default function PresaleStats() {
         
         const data = await response.json()
         if (data.success) {
-          setStats({
-            // Use the real wallet balance if available, otherwise use API data
-            total_raised: walletBalance !== null ? walletBalance : Number(data.stats.total_raised || 0),
+          // If we got a valid wallet balance, use it, otherwise use API data
+          const raisedAmount = walletBalance !== null ? walletBalance : Number(data.stats.total_raised || 0);
+          
+          // Update our last valid reference if we have a good value
+          if (raisedAmount > 0) {
+            lastValidRaisedRef.current = raisedAmount;
+          }
+          
+          safelyUpdateStats({
+            total_raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
-          })
+          });
         }
       } catch (error) {
         console.error('Error fetching presale stats:', error)
+        
+        // In case of error, don't reset the raised amount to 0
+        if (lastValidRaisedRef.current > 0) {
+          safelyUpdateStats({});
+        }
       } finally {
         setLoading(false)
       }
@@ -127,11 +171,10 @@ export default function PresaleStats() {
         if (data.success) {
           // Keep the current raised amount (which may be from wallet balance)
           // but update other stats from the API
-          setStats(prev => ({
-            ...prev,
+          safelyUpdateStats({
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
-          }))
+          });
         }
       } catch (error) {
         console.error('Error fetching presale stats:', error)
@@ -142,8 +185,16 @@ export default function PresaleStats() {
     const handleProgressUpdate = (event: CustomEvent) => {
       if (event.detail) {
         console.log('PresaleStats: Progress update event received:', event.detail);
-        setStats({
-          total_raised: event.detail.raised || 0,
+        
+        // Only update the raised amount if it's valid and non-zero
+        const newRaised = event.detail.raised || 0;
+        
+        if (newRaised > 0) {
+          lastValidRaisedRef.current = newRaised;
+        }
+        
+        safelyUpdateStats({
+          total_raised: newRaised > 0 ? newRaised : lastValidRaisedRef.current,
           cap: event.detail.cap || 75,
           contributors: event.detail.contributors || 0
         });
@@ -164,43 +215,37 @@ export default function PresaleStats() {
   }, [])
 
   return (
-    <div className="w-full">
-      <div className="grid grid-cols-2 gap-4 text-center">
-        <div>
-          <p className="text-gray-400 text-sm">Raised</p>
-          <p className="text-xl font-bold text-white">
-            {loading ? "Loading..." : `${stats.total_raised.toFixed(1)} SOL`}
-          </p>
-        </div>
-        <div>
-          <p className="text-gray-400 text-sm">Contributors</p>
-          <p className="text-xl font-bold text-white">
-            {loading ? "Loading..." : stats.contributors}
-          </p>
-        </div>
-        <div>
-          <p className="text-gray-400 text-sm">Progress</p>
-          <p className="text-xl font-bold text-green-400">
-            {loading ? "Loading..." : `${progressPercent}%`}
-          </p>
-        </div>
-        <div>
-          <p className="text-gray-400 text-sm">Allocation</p>
-          <p className="text-xl font-bold text-white">100%</p>
+    <div className="space-y-3">
+      {/* Progress Bar */}
+      <div>
+        <div className="w-full relative h-6 bg-gray-800 rounded-full overflow-hidden">
+          <div 
+            style={{ width: `${progressPercent}%` }}
+            className="absolute h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-700 flex items-center justify-center"
+          >
+            {progressPercent >= 10 && (
+              <span className="text-xs font-bold text-white">{progressPercent}%</span>
+            )}
+          </div>
+          {progressPercent < 10 && (
+            <span className="absolute text-xs font-bold text-white h-full w-full flex items-center justify-center">{progressPercent}%</span>
+          )}
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="relative mt-4">
-        <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-zinc-800">
-          <div 
-            style={{ width: `${progressPercent}%` }}
-            className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-400"
-          />
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+          <p className="text-xs text-gray-400">Raised</p>
+          <p className="font-bold text-sm">{stats.total_raised.toFixed(2)} SOL</p>
         </div>
-        <div className="flex justify-between text-xs text-gray-400">
-          <span>0 SOL</span>
-          <span>{stats.cap} SOL</span>
+        <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+          <p className="text-xs text-gray-400">Target</p>
+          <p className="font-bold text-sm">{stats.cap} SOL</p>
+        </div>
+        <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+          <p className="text-xs text-gray-400">Contributors</p>
+          <p className="font-bold text-sm">{stats.contributors}</p>
         </div>
       </div>
     </div>
