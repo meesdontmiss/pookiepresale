@@ -14,8 +14,9 @@ export default function DebugPage() {
     async function checkConnection() {
       try {
         const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG";
-        // Use our proxy endpoint to avoid 403 errors
-        const connection = new Connection("/api/rpc/proxy");
+        // Use our proxy endpoint to avoid 403 errors with absolute URL
+        const baseUrl = window.location.origin;
+        const connection = new Connection(`${baseUrl}/api/rpc/proxy`);
         
         // Test connection
         const slot = await connection.getSlot();

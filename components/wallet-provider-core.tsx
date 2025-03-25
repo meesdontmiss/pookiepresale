@@ -14,7 +14,9 @@ export function WalletProviderCore({ children }: { children: React.ReactNode }) 
   const endpoint = useMemo(() => {
     // In production use our API proxy to avoid 403 errors
     if (typeof window !== 'undefined') {
-      return "/api/rpc/proxy"; // Use our proxy endpoint
+      // Must use absolute URL for client-side
+      const baseUrl = window.location.origin;
+      return `${baseUrl}/api/rpc/proxy`;
     }
     // Fallback for SSR
     return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");

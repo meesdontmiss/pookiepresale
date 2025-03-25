@@ -1,23 +1,31 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Connection } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
 
-// List of RPC endpoints to test
-const RPC_ENDPOINTS = [
-  "/api/rpc/proxy",
-  "https://api.mainnet-beta.solana.com",
-  "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4",
-  "https://solana-mainnet.phantom.tech/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
-  "https://solana-api.syndica.io/access-token/9iDftHLv5zEEVAoZt8PVTCx369RxJ845xdMu9UGevAGg9YdwzaiJpBzZGrL9vt3N/rpc",
-  "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/",
-  "https://solana-mainnet.g.alchemy.com/v2/demo",
-];
+// List of RPC endpoints to test - using a function to dynamically create the list
+function getRpcEndpoints() {
+  // For browser environments, use absolute URL for the proxy
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  
+  return [
+    // Include our API proxy first with absolute URL
+    `${baseUrl}/api/rpc/proxy`,
+    "https://api.mainnet-beta.solana.com",
+    "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4",
+    "https://solana-mainnet.phantom.tech/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
+    "https://solana-api.syndica.io/access-token/9iDftHLv5zEEVAoZt8PVTCx369RxJ845xdMu9UGevAGg9YdwzaiJpBzZGrL9vt3N/rpc",
+    "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/",
+    "https://solana-mainnet.g.alchemy.com/v2/demo",
+  ];
+}
 
 export default function DebugHelper() {
   const [results, setResults] = useState<{endpoint: string, success: boolean, message: string}[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Get RPC endpoints when component mounts
+  const [rpcEndpoints] = useState(getRpcEndpoints);
 
   const testEndpoint = async (endpoint: string) => {
     try {
@@ -49,7 +57,7 @@ export default function DebugHelper() {
     setResults([]);
     
     const testResults = [];
-    for (const endpoint of RPC_ENDPOINTS) {
+    for (const endpoint of rpcEndpoints) {
       const result = await testEndpoint(endpoint);
       testResults.push(result);
       setResults([...testResults]); // Update results after each test

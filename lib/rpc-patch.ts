@@ -6,13 +6,22 @@
  */
 
 // Use our API proxy endpoint which handles multiple RPC endpoints with fallbacks
-const RELIABLE_ENDPOINT = "/api/rpc/proxy";
+// Need to use the absolute URL
+const getReliableEndpoint = () => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/rpc/proxy`;
+  }
+  return "https://api.mainnet-beta.solana.com"; // Fallback, though not used
+};
 
 // Define the patch
 export function patchSolanaRPC() {
   // Only run this in the browser
   if (typeof window !== 'undefined') {
     console.log("Applying Solana RPC patch...");
+    
+    // Get the reliable endpoint with the absolute URL
+    const RELIABLE_ENDPOINT = getReliableEndpoint();
     
     // Override window.fetch to intercept Solana RPC calls
     const originalFetch = window.fetch;

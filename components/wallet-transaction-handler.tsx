@@ -19,13 +19,16 @@ import { verifyTransaction } from '@/lib/transactions'
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
 
 // Create a connection to the Solana API proxy to avoid 403 errors
-const connection = new Connection("/api/rpc/proxy", 'confirmed');
+let connection: Connection;
 
-// For Node.js environments which can't use relative URLs
-if (typeof window === 'undefined') {
-  // Use a fallback RPC URL for server-side operations
+// For browser environments, use absolute URL
+if (typeof window !== 'undefined') {
+  const baseUrl = window.location.origin;
+  connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+} else {
+  // For Node.js environments which can't use relative URLs
   const fallbackRpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-  // We don't actually use this connection server-side, but define it for TypeScript
+  connection = new Connection(fallbackRpcUrl, 'confirmed');
 }
 
 interface TransactionHandlerProps {

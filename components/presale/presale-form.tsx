@@ -39,7 +39,8 @@ export default function PreSaleForm() {
       
       // Use our proxy URL in the browser, but fall back to the env var for server-side
       if (typeof window !== 'undefined') {
-        connection = new Connection('/api/rpc/proxy', 'confirmed');
+        const baseUrl = window.location.origin;
+        connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
       } else {
         // Server-side connection (should not be used from client components, but adding for completeness)
         connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
