@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
+import "@/lib/rpc-patch"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -54,9 +55,6 @@ export default function RootLayout({
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        
-        {/* Add our RPC patch script before anything else loads */}
-        <script src="/rpc-patch.js" />
         
         {/* Favicons */}
         <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />

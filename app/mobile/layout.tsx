@@ -1,6 +1,7 @@
 import { Metadata } from 'next'
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
+import "@/lib/rpc-patch"
 import '../globals.css'
 import './global.css'
 
@@ -54,9 +55,6 @@ export default function MobileLayout({
     <html lang="en" className="cursor-middle-finger">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-        
-        {/* Add our RPC patch script before anything else loads */}
-        <script src="/rpc-patch.js" />
         
         {/* Favicons */}
         <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
