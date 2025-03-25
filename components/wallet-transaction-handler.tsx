@@ -58,37 +58,14 @@ interface TransactionHandlerProps {
 
 // Utility function to get the best RPC connection
 const getBestConnection = async (connection: Connection, fallbackUrls: string[]): Promise<Connection> => {
-  // Try using the provided connection first
-  try {
-    // Test the current connection
-    console.log("Testing existing connection...");
-    await connection.getLatestBlockhash();
-    console.log("Using existing connection successfully");
-    return connection;
-  } catch (err) {
-    console.warn("Existing connection failed:", err);
-    
-    // Fall back to trying each URL in the fallback list
-    for (const endpoint of fallbackUrls) {
-      try {
-        console.log(`Trying fallback RPC endpoint: ${endpoint}`);
-        const fallbackConnection = new Connection(endpoint, {
-          commitment: "confirmed",
-          confirmTransactionInitialTimeout: 60000
-        });
-        
-        // Test the connection
-        await fallbackConnection.getLatestBlockhash();
-        console.log(`Successfully connected to RPC endpoint: ${endpoint}`);
-        return fallbackConnection;
-      } catch (err) {
-        console.warn(`Failed to connect to ${endpoint}:`, err);
-      }
-    }
-    
-    // If all fallbacks fail, throw an error
-    throw new Error("Failed to connect to any Solana RPC endpoint");
-  }
+  // Use Alchemy's demo endpoint which is known to work in browsers
+  const WORKING_RPC = "https://solana-mainnet.g.alchemy.com/v2/demo";
+  
+  console.log("Creating connection with Alchemy demo endpoint");
+  return new Connection(WORKING_RPC, {
+    commitment: "confirmed",
+    confirmTransactionInitialTimeout: 60000
+  });
 };
 
 export default function WalletTransactionHandler({
@@ -167,24 +144,15 @@ export default function WalletTransactionHandler({
       playClickSound();
 
       console.log("Starting transaction process...");
-      console.log(`Connection object exists: ${!!connection}`);
       
-      // Use reliable fallback RPC endpoints
-      const fallbackRpcEndpoints = [
-        "https://solana-mainnet.g.alchemy.com/v2/demo", // Try Alchemy's endpoint first
-        "https://solana-api.projectserum.com", // Try Project Serum endpoint
-        "https://api.mainnet-beta.solana.com", // Try public endpoint
-        "https://rpc.ankr.com/solana", // Ankr endpoint
-        "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4",
-        "https://solana-mainnet.phantom.tech/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
-        "https://solana-api.syndica.io/access-token/9iDftHLv5zEEVAoZt8PVTCx369RxJ845xdMu9UGevAGg9YdwzaiJpBzZGrL9vt3N/rpc",
-        "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/"
-      ];
+      // Use Alchemy's demo endpoint directly - it's known to work in browsers
+      const WORKING_RPC = "https://solana-mainnet.g.alchemy.com/v2/demo";
       
-      // Get the best available connection
-      console.log("Finding best RPC connection...");
-      const bestConnection = await getBestConnection(connection, fallbackRpcEndpoints);
-      console.log("Found working RPC connection!");
+      console.log("Creating connection with Alchemy demo endpoint");
+      const bestConnection = new Connection(WORKING_RPC, {
+        commitment: "confirmed",
+        confirmTransactionInitialTimeout: 60000
+      });
 
       // Get latest blockhash
       console.log("Getting latest blockhash...");
