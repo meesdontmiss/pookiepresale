@@ -1,0 +1,11 @@
+Place your audio files here:
+
+1. background-music.wav or background-music.mp3 - Looping background music
+2. click-sound.wav or click-sound.mp3 - Sound effect for clicks
+
+Both WAV and MP3 formats are supported. WAV files provide higher quality but are larger in size.
+
+You can find free sound resources at:
+- Pixabay: https://pixabay.com/music/
+- Freesound: https://freesound.org/ 
+- Mixkit: https://mixkit.co/free-sound-effects/ 

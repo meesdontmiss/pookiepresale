@@ -1,0 +1,43 @@
+/* Mobile-specific styles */
+body {
+  overscroll-behavior-y: none;
+}
+
+/* Override any desktop-specific styles for better mobile experience */
+.max-w-md {
+  max-width: calc(100vw - 2rem) !important;
+}
+
+/* Ensure buttons are large enough for touch targets */
+button {
+  min-height: 40px;
+}
+
+/* Ensure text is readable on mobile */
+p, a, span, div {
+  text-rendering: optimizeSpeed;
+}
+
+/* Simplify animations for better performance */
+* {
+  animation-duration: 0.3s !important;
+  transition-duration: 0.3s !important;
+}
+
+/* Add glow effects for mobile */
+.text-glow {
+  text-shadow: 0 0 8px #00ff88;
+}
+
+.border-glow {
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.shadow-glow {
+  box-shadow: 0 0 15px rgba(0, 255, 136, 0.15);
+}
+
+/* Custom cursor for mobile */
+.cursor-middle-finger {
+  cursor: default;
+} 

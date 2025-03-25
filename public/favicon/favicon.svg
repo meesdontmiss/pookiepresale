@@ -1,0 +1,18 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="256" fill="#191919"/>
+  
+  <!-- Main shape -->
+  <circle cx="256" cy="256" r="240" fill="url(#paint0_linear)"/>
+  
+  <!-- Text -->
+  <text x="256" y="330" text-anchor="middle" font-family="Arial, sans-serif" font-size="240" font-weight="bold" fill="#191919">P</text>
+  
+  <!-- Gradient definitions -->
+  <defs>
+    <linearGradient id="paint0_linear" x1="100" y1="100" x2="400" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00ff88"/>
+      <stop offset="1" stop-color="#00aa77"/>
+    </linearGradient>
+  </defs>
+</svg> 
