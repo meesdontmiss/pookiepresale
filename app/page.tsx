@@ -90,6 +90,50 @@ export default function Home() {
     return () => clearInterval(intervalId);
   }, [mounted]);
 
+  // Function to monitor the treasury wallet balance directly
+  const checkTreasuryWalletBalance = async () => {
+    try {
+      if (typeof window === 'undefined') return;
+      
+      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const baseUrl = window.location.origin;
+      const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+      
+      // Treasury wallet address
+      const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET || '4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh';
+      
+      // Get treasury balance
+      const treasuryBalance = await connection.getBalance(new PublicKey(treasuryWallet));
+      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+      
+      console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
+      
+      // Update presale stats with the real treasury balance
+      setPresaleStats(prev => ({
+        ...prev,
+        raised: solBalance
+      }));
+      
+      return solBalance;
+    } catch (error) {
+      console.error('Error checking treasury balance:', error);
+      return null;
+    }
+  };
+  
+  // Set up periodic treasury wallet balance check
+  useEffect(() => {
+    if (!mounted) return;
+    
+    // Check wallet balance immediately
+    checkTreasuryWalletBalance();
+    
+    // Then check every minute
+    const walletCheckInterval = setInterval(checkTreasuryWalletBalance, 60000);
+    
+    return () => clearInterval(walletCheckInterval);
+  }, [mounted]);
+
   // Subscribe to real-time updates for presale stats
   useEffect(() => {
     if (!mounted) return;

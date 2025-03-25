@@ -13,7 +13,7 @@ import { playClickSound, playSound } from "@/hooks/use-audio"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import Image from "next/image"
-import { X, Info } from "lucide-react"
+import { X, Info, Check, ExternalLink } from "lucide-react"
 import dynamic from "next/dynamic"
 import { calculateTokens, formatTokenAmount } from '@/utils/token-supply'
 import { motion } from 'framer-motion'
@@ -37,6 +37,9 @@ const CELEBRATION_MILESTONE = 2.0;
 // Custom event to trigger progress bar update across components
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
 
+// Treasury wallet to monitor
+const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
+
 interface ContributionFormProps {
   maxContribution: number
   tier: "core" | "public"
@@ -49,11 +52,48 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const [isContributing, setIsContributing] = useState(false)
   const [selectedOption, setSelectedOption] = useState<number>(tier === "public" ? 0.25 : 0.5)
   const [showCelebration, setShowCelebration] = useState(false)
+  const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
   const { toast: useToastToast } = useToast()
+
+  // Function to monitor treasury wallet balance
+  const monitorTreasuryBalance = async () => {
+    try {
+      if (typeof window === 'undefined') return;
+      
+      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const baseUrl = window.location.origin;
+      const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+      
+      // Get treasury balance
+      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
+      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+      
+      console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
+      
+      // Update the progress bar based on the actual wallet balance
+      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+        detail: {
+          raised: solBalance,
+          cap: 75, // Keep the cap at 75 SOL
+          contributors: null // We don't know the exact contributor count from the wallet balance
+        }
+      });
+      window.dispatchEvent(event);
+      
+      return solBalance;
+    } catch (error) {
+      console.error('Error monitoring treasury balance:', error);
+      return null;
+    }
+  };
 
   // Function to immediately refresh presale stats after a successful contribution
   const refreshPresaleStats = async () => {
     try {
+      // First, check the treasury wallet balance directly
+      const treasuryBalance = await monitorTreasuryBalance();
+      
+      // Then fetch stats from the API to update contributor count
       const response = await fetch('/api/presale/stats');
       if (!response.ok) throw new Error('Failed to fetch presale stats');
       
@@ -62,14 +102,16 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         // Dispatch a custom event with the latest stats to update progress bar
         const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
           detail: {
-            raised: Number(data.stats.total_raised || 0),
+            // Use treasury balance if available, otherwise use API data
+            raised: treasuryBalance || Number(data.stats.total_raised || 0),
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
           }
         });
         window.dispatchEvent(event);
         
-        console.log('Stats refreshed after contribution:', data.stats);
+        console.log('Stats refreshed after contribution:', 
+          treasuryBalance ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : data.stats);
       }
     } catch (error) {
       console.error('Error refreshing presale stats:', error);
@@ -140,7 +182,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
       
       // We need to send SOL to treasury wallet in a proper transaction
       // Use @solana/web3.js to create and send the transaction
-      const { Connection, SystemProgram, Transaction, PublicKey, sendAndConfirmTransaction } = await import('@solana/web3.js');
+      const { Connection, SystemProgram, Transaction, PublicKey, sendAndConfirmTransaction, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
       
       // Create connection to Solana using our API proxy to avoid 403 errors
       let connection;
@@ -159,7 +201,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         SystemProgram.transfer({
           fromPubkey: publicKey,
           toPubkey: new PublicKey(treasuryWallet),
-          lamports: numericAmount * 1000000000, // Convert SOL to lamports
+          lamports: numericAmount * LAMPORTS_PER_SOL, // Convert SOL to lamports
         })
       );
       
@@ -177,8 +219,14 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         const signedTransaction = await signTransaction(transaction);
         const signature = await connection.sendRawTransaction(signedTransaction.serialize());
         
+        // Set the transaction signature for viewing later
+        setTransactionSignature(signature);
+        
         // Wait for confirmation
         await connection.confirmTransaction(signature, 'confirmed');
+        
+        // Play success sound
+        playSound('/sounds/notification.wav');
         
         useToastToast({
           title: "Transaction sent!",
@@ -210,7 +258,24 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         
         useToastToast({
           title: "Contribution successful!",
-          description: `You contributed ${numericAmount} SOL and will receive ${formatTokenAmount(totalTokens)} POOKIE tokens.`,
+          description: (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-1 text-green-500">
+                <Check size={16} className="flex-shrink-0" />
+                <span>Transaction confirmed on Solana blockchain</span>
+              </div>
+              <p>You contributed {numericAmount} SOL and will receive {formatTokenAmount(totalTokens)} POOKIE tokens.</p>
+              <a 
+                href={`https://solscan.io/tx/${signature}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-1"
+              >
+                <ExternalLink size={12} />
+                <span>View transaction on Solscan</span>
+              </a>
+            </div>
+          ),
         });
         
         // Immediately refresh the presale stats to update the progress bar
@@ -225,7 +290,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
         // Close the form after success
         setTimeout(() => {
           onClose();
-        }, 2000);
+        }, 5000);
         
       } catch (error) {
         console.error('Transaction error:', error);

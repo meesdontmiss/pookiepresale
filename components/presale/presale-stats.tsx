@@ -8,6 +8,9 @@ interface PresaleStats {
   contributors: number
 }
 
+// Treasury wallet address constant
+const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
+
 export default function PresaleStats() {
   const [stats, setStats] = useState<PresaleStats>({
     total_raised: 0,
@@ -19,16 +22,49 @@ export default function PresaleStats() {
   // Calculate progress percentage
   const progressPercent = Math.min(100, Math.round((stats.total_raised / stats.cap) * 100))
 
+  // Function to check the treasury wallet balance directly
+  const checkTreasuryWalletBalance = async () => {
+    try {
+      if (typeof window === 'undefined') return null;
+      
+      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const baseUrl = window.location.origin;
+      const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+      
+      // Get treasury balance
+      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
+      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+      
+      console.log(`PresaleStats: Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
+      
+      // Update stats with the real treasury balance
+      setStats(prev => ({
+        ...prev,
+        total_raised: solBalance
+      }));
+      
+      return solBalance;
+    } catch (error) {
+      console.error('Error checking treasury balance:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
+        // First try to get the real wallet balance
+        const walletBalance = await checkTreasuryWalletBalance();
+        
+        // Then get the contributor count from the API
         const response = await fetch('/api/presale/stats')
         if (!response.ok) throw new Error('Failed to fetch presale stats')
         
         const data = await response.json()
         if (data.success) {
           setStats({
-            total_raised: Number(data.stats.total_raised || 0),
+            // Use the real wallet balance if available, otherwise use API data
+            total_raised: walletBalance !== null ? walletBalance : Number(data.stats.total_raised || 0),
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
           })
@@ -42,10 +78,14 @@ export default function PresaleStats() {
     
     fetchStats()
     
-    // Set up an interval to periodically update the stats
-    const intervalId = setInterval(fetchStats, 30000) // Update every 30 seconds
+    // Set up intervals to periodically update the stats
+    const statsInterval = setInterval(fetchStats, 30000) // Update stats every 30 seconds
+    const walletInterval = setInterval(checkTreasuryWalletBalance, 60000) // Check wallet every minute
     
-    return () => clearInterval(intervalId)
+    return () => {
+      clearInterval(statsInterval)
+      clearInterval(walletInterval)
+    }
   }, [])
 
   // Setup real-time updates
@@ -66,12 +106,14 @@ export default function PresaleStats() {
     const subscription = supabase
       .channel('public:contributions')
       .on('INSERT', () => {
-        // When a new contribution is made, refresh the stats
-        fetchStats()
+        // When a new contribution is made, check the wallet balance and refresh the stats
+        checkTreasuryWalletBalance();
+        fetchStats();
       })
       .on('UPDATE', () => {
-        // When a contribution is updated, refresh the stats
-        fetchStats()
+        // When a contribution is updated, check the wallet balance and refresh the stats
+        checkTreasuryWalletBalance();
+        fetchStats();
       })
       .subscribe()
     
@@ -83,11 +125,13 @@ export default function PresaleStats() {
         
         const data = await response.json()
         if (data.success) {
-          setStats({
-            total_raised: Number(data.stats.total_raised || 0),
+          // Keep the current raised amount (which may be from wallet balance)
+          // but update other stats from the API
+          setStats(prev => ({
+            ...prev,
             cap: Number(data.stats.cap || 75),
             contributors: Number(data.stats.contributors || 0)
-          })
+          }))
         }
       } catch (error) {
         console.error('Error fetching presale stats:', error)
@@ -103,6 +147,9 @@ export default function PresaleStats() {
           cap: event.detail.cap || 75,
           contributors: event.detail.contributors || 0
         });
+        
+        // After receiving an update event, verify with actual wallet balance
+        setTimeout(checkTreasuryWalletBalance, 5000);
       }
     };
 
