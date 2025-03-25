@@ -30,8 +30,13 @@ const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
-// Use a public RPC endpoint that doesn't require authentication
-const SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com" // Fallback to public RPC
+// Use multiple fallback RPC endpoints to avoid 403 errors
+const SOLANA_RPC_ENDPOINTS = [
+  "https://solana-mainnet.phantom.app/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
+  "https://solana-mainnet.g.alchemy.com/v2/demo", 
+  "https://api.mainnet-beta.solana.com"
+];
+const SOLANA_RPC_URL = SOLANA_RPC_ENDPOINTS[0]; // Start with the first endpoint
 
 // Log environment variables at runtime
 console.log("Environment variables loaded:");
@@ -155,19 +160,39 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true)
       playClickSound()
       
-      console.log("Creating Solana connection with URL:", SOLANA_RPC_URL);
-      
-      // Connect to the Solana network
-      const connection = new Connection(SOLANA_RPC_URL, {
-        commitment: "confirmed",
-        confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
-      })
-      
       console.log("Getting latest blockhash...");
       
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized")
-      console.log("Blockhash received:", blockhash);
+      // Try each RPC endpoint until one works
+      let blockhash, lastValidBlockHeight, connection;
+      let endpointSuccess = false;
+      let lastError;
+      
+      for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+        try {
+          console.log(`Trying Solana RPC endpoint: ${endpoint}`);
+          connection = new Connection(endpoint, {
+            commitment: "confirmed",
+            confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
+          });
+          
+          // Test the connection by getting the latest blockhash
+          const blockHashData = await connection.getLatestBlockhash("finalized");
+          blockhash = blockHashData.blockhash;
+          lastValidBlockHeight = blockHashData.lastValidBlockHeight;
+          
+          console.log(`Blockhash received from ${endpoint}:`, blockhash);
+          endpointSuccess = true;
+          break; // Success, exit the loop
+        } catch (err) {
+          console.error(`Failed to connect to ${endpoint}:`, err);
+          lastError = err;
+          // Continue to next endpoint
+        }
+      }
+      
+      if (!endpointSuccess) {
+        throw new Error(`All Solana RPC endpoints failed. Last error: ${lastError?.message || "Unknown error"}`);
+      }
       
       // Create a transaction to send SOL
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
@@ -200,39 +225,46 @@ export default function WalletTransactionHandler({
         
         let signature;
         
-        // Try primary send method
-        try {
-          // Use standard sendTransaction from useWallet directly - simplest method
-          console.log("Using standard sendTransaction hook...");
-          signature = await sendTransaction(transaction, connection);
-        } catch (sendError) {
-          console.error("Error with sendTransaction hook, trying wallet adapter directly:", sendError);
-          
-          // Try wallet adapter's sendTransaction method
-          if (wallet?.adapter?.sendTransaction) {
-            console.log("Using wallet.adapter.sendTransaction directly...");
-            signature = await wallet.adapter.sendTransaction(transaction, connection);
-          } else {
-            console.error("Wallet adapter doesn't support sendTransaction");
+        // Try phantom wallet's native method first if available
+        if (typeof window !== 'undefined' && 'solana' in window && (window.solana as any).isPhantom) {
+          try {
+            console.log("Using native Phantom wallet...");
+            const phantomWallet = window.solana as PhantomWallet;
             
-            // Last resort: For Phantom wallet, try using window.solana if available
-            if (typeof window !== 'undefined' && 'solana' in window) {
-              try {
-                console.log("Attempting to use window.solana (Phantom wallet)...");
-                const phantomWallet = window.solana as PhantomWallet;
-                await phantomWallet.connect();
-                signature = await phantomWallet.signAndSendTransaction(transaction);
-              } catch (phantomError) {
-                console.error("Error with Phantom direct method:", phantomError);
-                throw new Error("Failed to send transaction through your wallet. Please try refreshing the page or using a different wallet.");
-              }
+            // Make sure the transaction has the correct blockhash
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = publicKey;
+            
+            await phantomWallet.connect();
+            signature = await phantomWallet.signAndSendTransaction(transaction);
+            console.log("Transaction signed and sent with Phantom:", signature);
+          } catch (phantomError) {
+            console.error("Error with native Phantom method, falling back:", phantomError);
+            // Fall through to other methods
+          }
+        }
+        
+        // If we don't have a signature yet, try adapter methods
+        if (!signature) {
+          // Try wallet adapter methods
+          try {
+            console.log("Using wallet adapter methods...");
+            signature = await sendTransaction(transaction, connection);
+          } catch (sendError) {
+            console.error("Error with sendTransaction hook, trying wallet adapter directly:", sendError);
+            
+            if (wallet?.adapter?.sendTransaction) {
+              console.log("Using wallet.adapter.sendTransaction directly...");
+              signature = await wallet.adapter.sendTransaction(transaction, connection);
             } else {
               throw new Error("Your wallet doesn't support the required transaction methods");
             }
           }
         }
         
-        console.log("Transaction signed and sent:", signature);
+        if (!signature) {
+          throw new Error("Failed to send transaction - no signature returned");
+        }
         
         // Wait for confirmation with increased timeout
         console.log("Waiting for confirmation...");
