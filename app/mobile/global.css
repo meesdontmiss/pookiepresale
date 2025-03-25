@@ -1,8 +1,9 @@
 /* Mobile-specific styles */
 body {
-  /* Allow scrolling but prevent pull-to-refresh */
-  overscroll-behavior-y: contain;
+  /* Allow normal scrolling */
   overflow-y: auto;
+  margin: 0;
+  padding: 0;
 }
 
 /* Ensure the page has enough height to accommodate all content */

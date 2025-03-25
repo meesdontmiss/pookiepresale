@@ -17,9 +17,9 @@ function StrobeLight() {
   const spotlightRef = useRef<THREE.SpotLight>(null)
   const [color, setColor] = useState<'purple' | 'green'>('purple')
   
-  // Extremely saturated colors (super bright)
-  const purpleColor = new THREE.Color('#FF00FF').multiplyScalar(6) // Hyper-saturated purple
-  const greenColor = new THREE.Color('#00FF99').multiplyScalar(6) // Hyper-saturated green
+  // Saturated colors but not extreme
+  const purpleColor = new THREE.Color('#FF00FF').multiplyScalar(2.5) // Moderately saturated purple
+  const greenColor = new THREE.Color('#00FF99').multiplyScalar(2.5) // Moderately saturated green
   
   // Create strobe effect
   useFrame(({ clock }) => {
@@ -36,7 +36,7 @@ function StrobeLight() {
       }
       
       // Add some intensity variation for dramatic effect
-      spotlightRef.current.intensity = 6.0 + Math.sin(clock.getElapsedTime() * 10) * 2.0
+      spotlightRef.current.intensity = 3.0 + Math.sin(clock.getElapsedTime() * 10) * 1.0
     }
   })
   
@@ -46,7 +46,7 @@ function StrobeLight() {
       <spotLight 
         ref={spotlightRef}
         position={[0, 4, 0]} 
-        intensity={7.2} // 6x brighter
+        intensity={3.5} // Less bright than before
         angle={0.7} // Wider angle for more coverage (in radians)
         penumbra={0.9} // Soft edges
         color={color === 'purple' ? purpleColor : greenColor}
@@ -58,7 +58,7 @@ function StrobeLight() {
       {/* Secondary fill light to spread the color around */}
       <pointLight 
         position={[0, 1, 4]} 
-        intensity={1.8} // 6x brighter
+        intensity={1.0} // Less bright than before
         color={color === 'purple' ? purpleColor : greenColor}
         distance={15}
         decay={1.5} // Lower decay for brighter light
@@ -67,14 +67,14 @@ function StrobeLight() {
       {/* Additional side lights for more dramatic effect */}
       <pointLight 
         position={[-3, 0, 2]} 
-        intensity={1.2}
+        intensity={0.8} // Less bright than before
         color={color === 'purple' ? purpleColor : greenColor}
         distance={12}
         decay={1.5}
       />
       <pointLight 
         position={[3, 0, 2]} 
-        intensity={1.2}
+        intensity={0.8} // Less bright than before
         color={color === 'purple' ? purpleColor : greenColor}
         distance={12}
         decay={1.5}
