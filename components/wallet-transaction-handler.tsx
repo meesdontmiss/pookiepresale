@@ -32,16 +32,15 @@ const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
 // Use multiple fallback RPC endpoints to avoid 403 errors
 const SOLANA_RPC_ENDPOINTS = [
+  "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4", // Helius RPC (more reliable)
   "https://solana-mainnet.phantom.app/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
-  "https://solana-mainnet.g.alchemy.com/v2/demo", 
   "https://api.mainnet-beta.solana.com"
 ];
-const SOLANA_RPC_URL = SOLANA_RPC_ENDPOINTS[0]; // Start with the first endpoint
 
 // Log environment variables at runtime
 console.log("Environment variables loaded:");
 console.log("- TREASURY_WALLET:", TREASURY_WALLET);
-console.log("- SOLANA_RPC_URL:", SOLANA_RPC_URL);
+console.log("- SOLANA_RPC_ENDPOINTS:", SOLANA_RPC_ENDPOINTS);
 
 interface TransactionHandlerProps {
   maxAmount: number
@@ -50,6 +49,27 @@ interface TransactionHandlerProps {
   onSuccess?: (signature: string, amount: number) => void
   onError?: (error: Error) => void
   tier?: string
+}
+
+// Create a function to get a working RPC connection
+async function getWorkingConnection(): Promise<Connection> {
+  for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+    try {
+      const connection = new Connection(endpoint, {
+        commitment: "confirmed",
+        confirmTransactionInitialTimeout: 60000
+      });
+      
+      // Test the connection
+      await connection.getLatestBlockhash();
+      console.log(`Successfully connected to RPC endpoint: ${endpoint}`);
+      return connection;
+    } catch (err) {
+      console.warn(`Failed to connect to ${endpoint}:`, err);
+      continue;
+    }
+  }
+  throw new Error("Unable to establish connection to any Solana RPC endpoint");
 }
 
 export default function WalletTransactionHandler({
@@ -108,209 +128,134 @@ export default function WalletTransactionHandler({
   
   // Handle sending SOL
   const handleSendSol = async () => {
-    console.log("handleSendSol called, wallet connected:", connected);
-    console.log("Public key:", publicKey?.toString());
-    console.log("Treasury wallet:", TREASURY_WALLET);
-    
     if (!connected || !publicKey) {
       toast({ 
         title: "Wallet not connected", 
         description: "Please connect your wallet to continue", 
         variant: "destructive"
-      })
-      if (onError) onError(new Error("Wallet not connected"))
-      return
+      });
+      if (onError) onError(new Error("Wallet not connected"));
+      return;
     }
-    
+
     if (!isValidAmount) {
       toast({ 
         title: "Invalid amount", 
         description: `Amount must be between ${minAmount} and ${maxAmount} SOL`, 
         variant: "destructive"
-      })
-      if (onError) onError(new Error("Invalid amount"))
-      return
+      });
+      if (onError) onError(new Error("Invalid amount"));
+      return;
     }
-    
-    // Verify treasury wallet
+
     if (!TREASURY_WALLET) {
       toast({ 
         title: "Configuration error", 
-        description: "Treasury wallet not configured correctly. Please contact support.", 
+        description: "Treasury wallet not configured correctly", 
         variant: "destructive"
-      })
-      if (onError) onError(new Error("Treasury wallet not configured"))
-      return
+      });
+      if (onError) onError(new Error("Treasury wallet not configured"));
+      return;
     }
 
     try {
-      // Validate treasury wallet is a valid Solana address
-      try {
-        new PublicKey(TREASURY_WALLET);
-      } catch (error) {
-        toast({ 
-          title: "Configuration error", 
-          description: "Invalid treasury wallet address. Please contact support.", 
-          variant: "destructive"
-        })
-        if (onError) onError(new Error("Invalid treasury wallet address"))
-        return
-      }
-      
-      setIsSubmitting(true)
-      playClickSound()
-      
-      console.log("Getting latest blockhash...");
-      
-      // Try each RPC endpoint until one works
-      let blockhash, lastValidBlockHeight, connection;
-      let endpointSuccess = false;
-      let lastError;
-      
-      for (const endpoint of SOLANA_RPC_ENDPOINTS) {
-        try {
-          console.log(`Trying Solana RPC endpoint: ${endpoint}`);
-          connection = new Connection(endpoint, {
-            commitment: "confirmed",
-            confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
-          });
-          
-          // Test the connection by getting the latest blockhash
-          const blockHashData = await connection.getLatestBlockhash("finalized");
-          blockhash = blockHashData.blockhash;
-          lastValidBlockHeight = blockHashData.lastValidBlockHeight;
-          
-          console.log(`Blockhash received from ${endpoint}:`, blockhash);
-          endpointSuccess = true;
-          break; // Success, exit the loop
-        } catch (err) {
-          console.error(`Failed to connect to ${endpoint}:`, err);
-          lastError = err;
-          // Continue to next endpoint
-        }
-      }
-      
-      if (!endpointSuccess) {
-        throw new Error(`All Solana RPC endpoints failed. Last error: ${lastError?.message || "Unknown error"}`);
-      }
-      
-      // Create a transaction to send SOL
+      setIsSubmitting(true);
+      playClickSound();
+
+      // Get a working RPC connection
+      const connection = await getWorkingConnection();
+
+      // Get latest blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      console.log("Got latest blockhash:", blockhash);
+
+      // Create transaction
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
-      console.log("Creating transaction to send", lamports, "lamports (", amount, "SOL)");
+      const treasuryPubkey = new PublicKey(TREASURY_WALLET);
       
-      // Create instruction
-      const instruction = SystemProgram.transfer({
-        fromPubkey: publicKey,
-        toPubkey: new PublicKey(TREASURY_WALLET),
-        lamports: lamports
-      });
-      
-      // Create transaction with instruction
-      const transaction = new Transaction();
-      transaction.add(instruction);
-      
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: treasuryPubkey,
+          lamports
+        })
+      );
+
       // Set transaction parameters
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
-      
-      console.log("Transaction created with instruction:", instruction);
-      console.log("Transaction created, sending to wallet for signing...");
-      
-      // Send the transaction with explicit options to trigger wallet popup
-      try {
-        if (!wallet || !wallet.adapter) {
-          console.error("No wallet adapter available");
-          throw new Error("Your wallet isn't properly connected. Please reconnect your wallet.");
-        }
-        
-        let signature;
-        
-        // Try phantom wallet's native method first if available
-        if (typeof window !== 'undefined' && 'solana' in window && (window.solana as any).isPhantom) {
+
+      let signature: string | undefined;
+
+      // First try using Phantom's native method
+      if (typeof window !== 'undefined' && 'solana' in window) {
+        const phantomWallet = window.solana as PhantomWallet;
+        if (phantomWallet?.isPhantom) {
           try {
-            console.log("Using native Phantom wallet...");
-            const phantomWallet = window.solana as PhantomWallet;
-            
-            // Make sure the transaction has the correct blockhash
-            transaction.recentBlockhash = blockhash;
-            transaction.feePayer = publicKey;
-            
-            await phantomWallet.connect();
+            console.log("Using Phantom's native transaction method...");
             signature = await phantomWallet.signAndSendTransaction(transaction);
-            console.log("Transaction signed and sent with Phantom:", signature);
+            console.log("Phantom transaction sent:", signature);
           } catch (phantomError) {
-            console.error("Error with native Phantom method, falling back:", phantomError);
-            // Fall through to other methods
+            console.warn("Phantom native method failed:", phantomError);
+            // Don't throw, let it fall through to adapter method
           }
         }
-        
-        // If we don't have a signature yet, try adapter methods
-        if (!signature) {
-          // Try wallet adapter methods
-          try {
-            console.log("Using wallet adapter methods...");
-            signature = await sendTransaction(transaction, connection);
-          } catch (sendError) {
-            console.error("Error with sendTransaction hook, trying wallet adapter directly:", sendError);
-            
-            if (wallet?.adapter?.sendTransaction) {
-              console.log("Using wallet.adapter.sendTransaction directly...");
-              signature = await wallet.adapter.sendTransaction(transaction, connection);
-            } else {
-              throw new Error("Your wallet doesn't support the required transaction methods");
-            }
-          }
-        }
-        
-        if (!signature) {
-          throw new Error("Failed to send transaction - no signature returned");
-        }
-        
-        // Wait for confirmation with increased timeout
-        console.log("Waiting for confirmation...");
-        
-        // Wait for confirmation with increased timeout
-        const confirmation = await connection.confirmTransaction({
-          blockhash, 
-          lastValidBlockHeight,
-          signature
-        }, "confirmed");
-        console.log("Transaction confirmed:", confirmation);
-        
-        // Save the transaction signature
-        setTransactionSignature(signature);
-        
-        // Verify transaction on the server
-        await verifyTransaction(signature, publicKey.toString(), amount);
-        
-        // Play success sound
-        playSound(SUCCESS_SOUND_PATH, 0.3);
-        
-        // Show success message
-        toast({
-          title: "Contribution successful!",
-          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
-        });
-        
-        // Call success callback
-        if (onSuccess) onSuccess(signature, amount);
-      } catch (error) {
-        console.error("Transaction error in wallet send:", error);
-        throw error;
       }
+
+      // If Phantom method wasn't available or failed, try wallet adapter
+      if (!signature && wallet?.adapter) {
+        try {
+          console.log("Using wallet adapter...");
+          signature = await wallet.adapter.sendTransaction(transaction, connection);
+          console.log("Wallet adapter transaction sent:", signature);
+        } catch (adapterError) {
+          console.error("Wallet adapter send failed:", adapterError);
+          throw adapterError;
+        }
+      }
+
+      if (!signature) {
+        throw new Error("No wallet method available to send transaction");
+      }
+
+      // Wait for confirmation
+      console.log("Waiting for confirmation...");
+      const confirmationResponse = await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight
+      }, "confirmed");
+
+      if (confirmationResponse.value.err) {
+        throw new Error(`Transaction failed: ${confirmationResponse.value.err.toString()}`);
+      }
+
+      console.log("Transaction confirmed:", confirmationResponse);
+
+      // Transaction successful
+      setTransactionSignature(signature);
+      await verifyTransaction(signature, publicKey.toString(), amount);
+      playSound(SUCCESS_SOUND_PATH, 0.3);
       
-    } catch (error) {
-      console.error("Transaction error:", error)
+      toast({
+        title: "Contribution successful!",
+        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+      });
+
+      if (onSuccess) onSuccess(signature, amount);
+
+    } catch (error: unknown) {
+      console.error("Transaction error:", error);
       toast({
         title: "Transaction failed",
         description: error instanceof Error ? error.message : "Please try again later",
         variant: "destructive"
-      })
-      if (onError) onError(error as Error)
+      });
+      if (onError) onError(error instanceof Error ? error : new Error("Transaction failed"));
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
   
   // Format the displayed wallet address for better UX
   const formatAddress = (address: string) => {
