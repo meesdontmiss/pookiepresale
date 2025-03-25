@@ -33,13 +33,81 @@ type PhantomWallet = {
 const CLICK_SOUND_PATH = '/sounds/click.mp3'
 const SUCCESS_SOUND_PATH = '/sounds/success.mp3'
 
-// Fallback RPC endpoints
-const RPC_ENDPOINTS = [
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
-  "https://api.mainnet-beta.solana.com",
-  "https://solana-mainnet.rpc.extrnode.com",
-  clusterApiUrl('mainnet-beta')
-];
+// Local RPC proxy URL - avoids CORS issues
+const RPC_PROXY_URL = '/api/rpc/proxy';
+
+// Custom Connection class that uses our server-side proxy
+class ProxyConnection extends Connection {
+  constructor() {
+    // Use any URL here, it will be overridden by our fetch implementation
+    super('https://api.mainnet-beta.solana.com');
+  }
+
+  async _fetch(method: string, params: any) {
+    try {
+      console.log(`ProxyConnection: calling ${method}`, params);
+      
+      const response = await fetch(RPC_PROXY_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now().toString(),
+          method,
+          params,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
+      }
+      
+      return data.result;
+    } catch (error) {
+      console.error('ProxyConnection fetch error:', error);
+      throw error;
+    }
+  }
+
+  // Override the required methods to use our proxy
+  async getLatestBlockhash(commitment?: any) {
+    const result = await this._fetch('getLatestBlockhash', [{ commitment: commitment || 'finalized' }]);
+    return {
+      blockhash: result.blockhash,
+      lastValidBlockHeight: result.lastValidBlockHeight,
+    };
+  }
+  
+  async getBlockHeight() {
+    return this._fetch('getBlockHeight', [{ commitment: 'finalized' }]);
+  }
+  
+  async confirmTransaction(signature: any, commitment: any) {
+    if (typeof signature === 'string') {
+      const result = await this._fetch('confirmTransaction', [signature, { commitment }]);
+      return { value: { err: result?.err || null } };
+    } else {
+      // Handle object format with blockhash
+      const result = await this._fetch('confirmTransaction', [{
+        signature: signature.signature,
+        blockhash: signature.blockhash,
+        lastValidBlockHeight: signature.lastValidBlockHeight || 0
+      }, commitment]);
+      return { value: { err: result?.err || null } };
+    }
+  }
+}
+
+// Create a singleton proxy connection
+const proxyConnection = new ProxyConnection();
 
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
@@ -48,29 +116,7 @@ const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcX
 console.log("Environment variables loaded:");
 console.log("- TREASURY_WALLET:", TREASURY_WALLET);
 console.log("- RPC_URL:", process.env.NEXT_PUBLIC_SOLANA_RPC_URL);
-
-// Function to find a working RPC connection
-async function getWorkingConnection(): Promise<Connection> {
-  let lastError: Error | null = null;
-  
-  for (const endpoint of RPC_ENDPOINTS) {
-    try {
-      console.log(`Trying RPC endpoint: ${endpoint}`);
-      const connection = new Connection(endpoint, 'confirmed');
-      
-      // Test the connection by requesting a blockhash
-      const { blockhash } = await connection.getLatestBlockhash('finalized');
-      console.log(`RPC endpoint ${endpoint} is working, got blockhash: ${blockhash.substring(0, 10)}...`);
-      
-      return connection;
-    } catch (error) {
-      console.warn(`RPC endpoint ${endpoint} failed:`, error);
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-  
-  throw lastError || new Error("All RPC endpoints failed");
-}
+console.log("- Using RPC Proxy:", RPC_PROXY_URL);
 
 interface TransactionHandlerProps {
   minAmount?: number
@@ -149,16 +195,6 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true);
       playClickSound();
 
-      // Find a working connection
-      let workingConnection;
-      try {
-        workingConnection = await getWorkingConnection();
-      } catch (error) {
-        console.error("Failed to find a working RPC connection:", error);
-        // Fall back to the default connection
-        workingConnection = defaultConnection;
-      }
-
       // Create transaction
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
       const treasuryPubkey = new PublicKey(TREASURY_WALLET);
@@ -171,11 +207,12 @@ export default function WalletTransactionHandler({
         })
       );
 
-      // Get blockhash
+      // Get blockhash using our proxy connection
       try {
-        const { blockhash, lastValidBlockHeight } = await workingConnection.getLatestBlockhash('finalized');
+        const { blockhash } = await proxyConnection.getLatestBlockhash('finalized');
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
+        console.log("Got blockhash:", blockhash.substring(0, 10) + "...");
       } catch (error) {
         console.error("Failed to get recent blockhash:", error);
         toast({
@@ -192,7 +229,8 @@ export default function WalletTransactionHandler({
       console.log("Sending transaction...");
       let signature;
       try {
-        signature = await sendTransaction(transaction, workingConnection);
+        // Use our proxy connection
+        signature = await sendTransaction(transaction, proxyConnection);
         console.log("Transaction sent:", signature);
       } catch (error) {
         console.error("Failed to send transaction:", error);
@@ -211,10 +249,10 @@ export default function WalletTransactionHandler({
       
       try {
         // Confirm transaction
-        const confirmation = await workingConnection.confirmTransaction({
+        const confirmation = await proxyConnection.confirmTransaction({
           signature,
           blockhash: transaction.recentBlockhash!,
-          lastValidBlockHeight: await workingConnection.getBlockHeight(),
+          lastValidBlockHeight: await proxyConnection.getBlockHeight(),
         }, 'confirmed');
         
         if (confirmation.value.err) {
