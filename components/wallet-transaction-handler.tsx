@@ -104,7 +104,13 @@ export default function WalletTransactionHandler({
       playClickSound()
       
       // Connect to the Solana network
-      const connection = new Connection(SOLANA_RPC_URL, "confirmed")
+      const connection = new Connection(SOLANA_RPC_URL, {
+        commitment: "confirmed",
+        confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
+      })
+      
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized")
       
       // Create a transaction to send SOL
       const transaction = new Transaction().add(
@@ -115,12 +121,20 @@ export default function WalletTransactionHandler({
         })
       )
       
+      // Set transaction parameters
+      transaction.recentBlockhash = blockhash
+      transaction.feePayer = publicKey
+      
       // Send the transaction
       const signature = await sendTransaction(transaction, connection)
       console.log("Transaction sent:", signature)
       
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature, "confirmed")
+      // Wait for confirmation with increased timeout
+      const confirmation = await connection.confirmTransaction({
+        blockhash, 
+        lastValidBlockHeight,
+        signature
+      }, "confirmed")
       console.log("Transaction confirmed:", confirmation)
       
       // Save the transaction signature

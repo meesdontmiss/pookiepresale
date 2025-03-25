@@ -51,7 +51,15 @@ export function MusicPlayer() {
   }, [])
   
   const handlePlayPause = () => {
-    setIsPlaying(!isPlaying)
+    if (audioRef.current) {
+      if (!isPlaying) {
+        audioRef.current.play()
+          .catch(e => console.error("Error playing audio:", e));
+      } else {
+        audioRef.current.pause();
+      }
+    }
+    setIsPlaying(!isPlaying);
   }
   
   const handleVolumeChange = () => {

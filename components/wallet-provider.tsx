@@ -43,7 +43,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={endpoint} config={{
+      commitment: "confirmed",
+      confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
+    }}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>

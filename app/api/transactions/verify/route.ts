@@ -6,8 +6,11 @@ import { supabase } from '@/utils/supabase-client'
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ''
 
-// Create Solana connection
-const connection = new Connection(SOLANA_RPC_URL, 'confirmed')
+// Create Solana connection with improved configuration
+const connection = new Connection(SOLANA_RPC_URL, {
+  commitment: 'confirmed',
+  confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
+})
 
 export async function POST(request: NextRequest) {
   try {
@@ -76,15 +79,17 @@ export async function POST(request: NextRequest) {
       
       try {
         // For legacy transactions (most common)
-        if (transactionDetails.transaction.message.accountKeys) {
-          accountAddresses = transactionDetails.transaction.message.accountKeys.map(key => key.toString())
+        if ('accountKeys' in transactionDetails.transaction.message) {
+          // For legacy transactions
+          const message = transactionDetails.transaction.message as { accountKeys: { toString(): string }[] }
+          accountAddresses = message.accountKeys.map(key => key.toString())
         }
         // For versioned transactions
         else if (typeof transactionDetails.transaction.message.getAccountKeys === 'function') {
           const keySet = transactionDetails.transaction.message.getAccountKeys()
           if (keySet) {
             // Get all account keys involved
-            accountAddresses = keySet.keySegments().flat().map(key => key.toString())
+            accountAddresses = keySet.keySegments().flat().map((key: { toString(): string }) => key.toString())
           }
         }
       } catch (error) {
