@@ -18,6 +18,7 @@ import { Icons } from "@/components/icons"
 import { useToast } from '@/components/ui/use-toast'
 import { useSound } from '@/hooks/use-sound'
 import { verifyTransaction } from '@/lib/transactions'
+import { createReliableConnection } from '@/lib/solana-connection-patch'
 
 // Define the Phantom wallet interface for window.solana
 // Only declare in module scope (not global) to avoid conflicts with other definitions
@@ -145,14 +146,9 @@ export default function WalletTransactionHandler({
 
       console.log("Starting transaction process...");
       
-      // Use Alchemy's demo endpoint directly - it's known to work in browsers
-      const WORKING_RPC = "https://solana-mainnet.g.alchemy.com/v2/demo";
-      
-      console.log("Creating connection with Alchemy demo endpoint");
-      const bestConnection = new Connection(WORKING_RPC, {
-        commitment: "confirmed",
-        confirmTransactionInitialTimeout: 60000
-      });
+      // Create a reliable connection using our patch
+      console.log("Creating reliable Solana connection");
+      const bestConnection = createReliableConnection();
 
       // Get latest blockhash
       console.log("Getting latest blockhash...");
