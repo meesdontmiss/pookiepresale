@@ -115,9 +115,9 @@ export default function MobilePage() {
   }
 
   return (
-    <div className="flex flex-col items-center min-h-screen w-full px-4 py-6 overflow-hidden">
+    <div className="flex flex-col items-center min-h-screen w-full px-4 py-6">
       {/* Header */}
-      <header className="w-full flex justify-between items-center mb-6">
+      <header className="w-full flex justify-between items-center mb-6 sticky top-0 z-10 bg-gradient-to-b from-black to-transparent py-2">
         <div className="flex items-center">
           <img 
             src="/images/pookie-smashin.gif" 
@@ -137,8 +137,8 @@ export default function MobilePage() {
         </div>
       </header>
 
-      {/* 3D Model Container - Smaller for mobile */}
-      <div className="relative w-full h-60 mb-6">
+      {/* 3D Model Container - Improved height and positioning */}
+      <div className="relative w-full model-container mb-6">
         <Suspense fallback={<div className="w-full h-full flex items-center justify-center">Loading Pookie...</div>}>
           <PookieModel />
         </Suspense>

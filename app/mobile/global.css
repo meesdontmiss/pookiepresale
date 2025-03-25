@@ -1,11 +1,20 @@
 /* Mobile-specific styles */
 body {
-  overscroll-behavior-y: none;
+  /* Allow scrolling but prevent pull-to-refresh */
+  overscroll-behavior-y: contain;
+  overflow-y: auto;
 }
 
 /* Override any desktop-specific styles for better mobile experience */
 .max-w-md {
   max-width: calc(100vw - 2rem) !important;
+}
+
+/* Ensure content is properly scrollable */
+html, body {
+  height: 100%;
+  width: 100%;
+  position: relative;
 }
 
 /* Ensure buttons are large enough for touch targets */
@@ -40,4 +49,13 @@ p, a, span, div {
 /* Custom cursor for mobile */
 .cursor-middle-finger {
   cursor: default;
+}
+
+/* Improved 3D model container for mobile */
+.model-container {
+  width: 100%;
+  height: 80vw; /* Height proportional to width for better scaling */
+  max-height: 400px;
+  overflow: visible;
+  position: relative;
 } 

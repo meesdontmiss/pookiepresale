@@ -76,7 +76,7 @@ export default function MobileLayout({
       <body className="min-h-screen bg-background antialiased cursor-middle-finger">
         <WalletProvider>
           <GlobalSoundProvider />
-          <main className="min-h-screen w-full max-w-full overflow-hidden">
+          <main className="min-h-screen w-full max-w-full">
             {children}
           </main>
         </WalletProvider>
