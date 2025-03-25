@@ -93,10 +93,26 @@ export default function PresaleStats() {
         console.error('Error fetching presale stats:', error)
       }
     }
+
+    // Listen for custom progress update events from the contribution form
+    const handleProgressUpdate = (event: CustomEvent) => {
+      if (event.detail) {
+        console.log('PresaleStats: Progress update event received:', event.detail);
+        setStats({
+          total_raised: event.detail.raised || 0,
+          cap: event.detail.cap || 75,
+          contributors: event.detail.contributors || 0
+        });
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
     
     // Cleanup function
     return () => {
       subscription.unsubscribe()
+      window.removeEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
     }
   }, [])
 

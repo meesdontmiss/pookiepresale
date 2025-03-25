@@ -34,6 +34,9 @@ const PUBLIC_CONTRIBUTION_AMOUNT = 0.25;
 // Special milestone for celebration
 const CELEBRATION_MILESTONE = 2.0;
 
+// Custom event to trigger progress bar update across components
+const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
+
 interface ContributionFormProps {
   maxContribution: number
   tier: "core" | "public"
@@ -47,6 +50,31 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const [selectedOption, setSelectedOption] = useState<number>(tier === "public" ? 0.25 : 0.5)
   const [showCelebration, setShowCelebration] = useState(false)
   const { toast: useToastToast } = useToast()
+
+  // Function to immediately refresh presale stats after a successful contribution
+  const refreshPresaleStats = async () => {
+    try {
+      const response = await fetch('/api/presale/stats');
+      if (!response.ok) throw new Error('Failed to fetch presale stats');
+      
+      const data = await response.json();
+      if (data.success) {
+        // Dispatch a custom event with the latest stats to update progress bar
+        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+          detail: {
+            raised: Number(data.stats.total_raised || 0),
+            cap: Number(data.stats.cap || 75),
+            contributors: Number(data.stats.contributors || 0)
+          }
+        });
+        window.dispatchEvent(event);
+        
+        console.log('Stats refreshed after contribution:', data.stats);
+      }
+    } catch (error) {
+      console.error('Error refreshing presale stats:', error);
+    }
+  };
 
   // Get available options based on tier
   const availableOptions = tier === "public" 
@@ -184,6 +212,9 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           title: "Contribution successful!",
           description: `You contributed ${numericAmount} SOL and will receive ${formatTokenAmount(totalTokens)} POOKIE tokens.`,
         });
+        
+        // Immediately refresh the presale stats to update the progress bar
+        refreshPresaleStats();
         
         // Check if the user hit the celebration milestone
         if (numericAmount === CELEBRATION_MILESTONE) {
