@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
+import { useWallet, useConnection } from '@solana/wallet-adapter-react'
 import { 
   Connection, 
   PublicKey, 
@@ -14,6 +14,10 @@ import { Input } from '@/components/ui/input'
 import { toast } from '@/components/ui/use-toast'
 import { playClickSound, playSound } from '@/hooks/use-audio'
 import { motion } from "framer-motion"
+import { Icons } from "@/components/icons"
+import { useToast } from '@/components/ui/use-toast'
+import { useSound } from '@/hooks/use-sound'
+import { verifyTransaction } from '@/lib/transactions'
 
 // Define the Phantom wallet interface for window.solana
 // Only declare in module scope (not global) to avoid conflicts with other definitions
@@ -25,11 +29,11 @@ type PhantomWallet = {
 }
 
 // Sound paths
-const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
-const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
+const CLICK_SOUND_PATH = '/sounds/click.mp3'
+const SUCCESS_SOUND_PATH = '/sounds/success.mp3'
 
 // Destination wallet for the presale
-const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
+const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
 // Use multiple fallback RPC endpoints to avoid 403 errors
 const SOLANA_RPC_ENDPOINTS = [
   "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4", // Helius RPC (more reliable)
@@ -43,88 +47,87 @@ console.log("- TREASURY_WALLET:", TREASURY_WALLET);
 console.log("- SOLANA_RPC_ENDPOINTS:", SOLANA_RPC_ENDPOINTS);
 
 interface TransactionHandlerProps {
-  maxAmount: number
   minAmount?: number
-  defaultAmount?: number
+  maxAmount?: number
   onSuccess?: (signature: string, amount: number) => void
   onError?: (error: Error) => void
+  inputLabel?: string
+  buttonLabel?: string
   tier?: string
 }
 
-// Create a function to get a working RPC connection
-async function getWorkingConnection(): Promise<Connection> {
-  for (const endpoint of SOLANA_RPC_ENDPOINTS) {
-    try {
-      const connection = new Connection(endpoint, {
-        commitment: "confirmed",
-        confirmTransactionInitialTimeout: 60000
-      });
-      
-      // Test the connection
-      await connection.getLatestBlockhash();
-      console.log(`Successfully connected to RPC endpoint: ${endpoint}`);
-      return connection;
-    } catch (err) {
-      console.warn(`Failed to connect to ${endpoint}:`, err);
-      continue;
+// Utility function to get the best RPC connection
+const getBestConnection = async (fallbackUrls: string[]): Promise<Connection> => {
+  // Try using the wallet adapter connection first
+  try {
+    // Test the current connection
+    await connection.getLatestBlockhash();
+    console.log("Using wallet adapter connection");
+    return connection;
+  } catch (err) {
+    console.warn("Wallet adapter connection failed:", err);
+    
+    // Fall back to trying each URL in the fallback list
+    for (const endpoint of fallbackUrls) {
+      try {
+        console.log(`Trying fallback RPC endpoint: ${endpoint}`);
+        const fallbackConnection = new Connection(endpoint, {
+          commitment: "confirmed",
+          confirmTransactionInitialTimeout: 60000
+        });
+        
+        // Test the connection
+        await fallbackConnection.getLatestBlockhash();
+        console.log(`Successfully connected to RPC endpoint: ${endpoint}`);
+        return fallbackConnection;
+      } catch (err) {
+        console.warn(`Failed to connect to ${endpoint}:`, err);
+      }
     }
+    
+    // If all fallbacks fail, throw an error
+    throw new Error("Failed to connect to any Solana RPC endpoint");
   }
-  throw new Error("Unable to establish connection to any Solana RPC endpoint");
-}
+};
 
 export default function WalletTransactionHandler({
-  maxAmount,
-  minAmount = 0.1,
-  defaultAmount = 0.5,
+  minAmount = 0.05,
+  maxAmount = 10,
   onSuccess,
   onError,
+  inputLabel = "Amount (SOL)",
+  buttonLabel = "Contribute",
   tier = 'public'
 }: TransactionHandlerProps) {
-  const { connected, publicKey, sendTransaction, wallet, connecting, disconnect } = useWallet()
-  const [amount, setAmount] = useState<number>(defaultAmount)
+  const { connection } = useConnection()
+  const wallet = useWallet()
+  const { publicKey, connected, sendTransaction } = wallet
+  const { toast } = useToast()
+  const [amount, setAmount] = useState<number>(minAmount)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
+  const [displayedAddress, setDisplayedAddress] = useState<string>("")
   
   // Log wallet state on mount and changes
   useEffect(() => {
     console.log("Wallet state changed:");
     console.log("- Connected:", connected);
-    console.log("- Connecting:", connecting);
     console.log("- Wallet:", wallet?.adapter.name);
     console.log("- PublicKey:", publicKey?.toString());
-  }, [connected, connecting, wallet, publicKey]);
+  }, [connected, wallet, publicKey]);
   
   // Validate amount
   const isValidAmount = amount >= minAmount && amount <= maxAmount
   
-  // Verify transaction on the server
-  const verifyTransaction = async (signature: string, walletAddress: string, amount: number) => {
-    try {
-      const response = await fetch('/api/transactions/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          signature,
-          walletAddress,
-          amount,
-          tier
-        }),
-      })
-      
-      const result = await response.json()
-      
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Transaction verification failed')
-      }
-      
-      return true
-    } catch (error) {
-      console.error('Verification error:', error)
-      throw error
+  // Format wallet address for display
+  useEffect(() => {
+    if (publicKey) {
+      const address = publicKey.toString();
+      setDisplayedAddress(address.substring(0, 4) + '...' + address.substring(address.length - 4));
+    } else {
+      setDisplayedAddress("");
     }
-  }
+  }, [publicKey]);
   
   // Handle sending SOL
   const handleSendSol = async () => {
@@ -162,11 +165,19 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true);
       playClickSound();
 
-      // Get a working RPC connection
-      const connection = await getWorkingConnection();
+      // Fallback RPC endpoints if the wallet adapter connection fails
+      const fallbackRpcEndpoints = [
+        "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4",
+        "https://solana-mainnet.phantom.app/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
+        "https://solana-api.syndica.io/access-token/9iDftHLv5zEEVAoZt8PVTCx369RxJ845xdMu9UGevAGg9YdwzaiJpBzZGrL9vt3N/rpc",
+        "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/"
+      ];
+      
+      // Get the best available connection
+      const bestConnection = await getBestConnection(fallbackRpcEndpoints);
 
       // Get latest blockhash
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized");
+      const { blockhash, lastValidBlockHeight } = await bestConnection.getLatestBlockhash("finalized");
       console.log("Got latest blockhash:", blockhash);
 
       // Create transaction
@@ -187,12 +198,13 @@ export default function WalletTransactionHandler({
 
       let signature: string | undefined;
 
-      // First try using Phantom's native method
+      // APPROACH 1: Try using Phantom's native method directly
       if (typeof window !== 'undefined' && 'solana' in window) {
         const phantomWallet = window.solana as PhantomWallet;
         if (phantomWallet?.isPhantom) {
           try {
             console.log("Using Phantom's native transaction method...");
+            await phantomWallet.connect(); // Ensure connection is fresh
             signature = await phantomWallet.signAndSendTransaction(transaction);
             console.log("Phantom transaction sent:", signature);
           } catch (phantomError) {
@@ -202,14 +214,26 @@ export default function WalletTransactionHandler({
         }
       }
 
-      // If Phantom method wasn't available or failed, try wallet adapter
+      // APPROACH 2: If Phantom method wasn't available or failed, try wallet adapter hook
+      if (!signature) {
+        try {
+          console.log("Using wallet adapter sendTransaction hook...");
+          signature = await sendTransaction(transaction, bestConnection);
+          console.log("Hook transaction sent:", signature);
+        } catch (adapterError) {
+          console.warn("Wallet adapter hook failed:", adapterError);
+          // Don't throw, try the next method
+        }
+      }
+
+      // APPROACH 3: Direct adapter call as last resort
       if (!signature && wallet?.adapter) {
         try {
-          console.log("Using wallet adapter...");
-          signature = await wallet.adapter.sendTransaction(transaction, connection);
-          console.log("Wallet adapter transaction sent:", signature);
+          console.log("Using wallet adapter directly...");
+          signature = await wallet.adapter.sendTransaction(transaction, bestConnection);
+          console.log("Direct adapter transaction sent:", signature);
         } catch (adapterError) {
-          console.error("Wallet adapter send failed:", adapterError);
+          console.error("All wallet methods failed:", adapterError);
           throw adapterError;
         }
       }
@@ -220,7 +244,7 @@ export default function WalletTransactionHandler({
 
       // Wait for confirmation
       console.log("Waiting for confirmation...");
-      const confirmationResponse = await connection.confirmTransaction({
+      const confirmationResponse = await bestConnection.confirmTransaction({
         signature,
         blockhash,
         lastValidBlockHeight
@@ -264,93 +288,71 @@ export default function WalletTransactionHandler({
   };
   
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm">
-          <span>Amount (SOL):</span>
-          <span className="text-muted-foreground">{`Max: ${maxAmount} SOL`}</span>
-        </div>
-        
-        <Input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
-          min={minAmount}
-          max={maxAmount}
-          step={0.1}
-          disabled={isSubmitting}
-          className="h-10"
-        />
-      </div>
-      
-      <div className="space-y-2">
-        <div className="text-sm space-y-1">
-          <div className="flex justify-between">
-            <span>Your wallet:</span>
-            <span className="font-mono text-xs truncate max-w-[180px]">
-              {connected && publicKey ? formatAddress(publicKey.toString()) : 'Not connected'}
-            </span>
+    <form onSubmit={(e) => { e.preventDefault(); if (isValidAmount && !isSubmitting) handleSendSol(); }}>
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="amount" className="block text-sm font-medium text-foreground mb-1">
+            {inputLabel}
+          </label>
+          <div className="relative">
+            <Input
+              id="amount"
+              type="number"
+              value={amount}
+              onChange={(e) => {
+                const value = parseFloat(e.target.value);
+                setAmount(isNaN(value) ? 0 : value);
+              }}
+              min={minAmount}
+              max={maxAmount}
+              step={0.01}
+              required
+              className="border-input bg-background"
+              disabled={isSubmitting}
+            />
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted-foreground">
+              SOL
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span>Sending to:</span>
-            <span className="font-mono text-xs truncate max-w-[180px]">{formatAddress(TREASURY_WALLET)}</span>
+          {!isValidAmount && (
+            <p className="text-xs text-red-500 mt-1">
+              Amount must be between {minAmount} and {maxAmount} SOL
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Min: {minAmount} SOL, Max: {maxAmount} SOL
+          </p>
+        </div>
+
+        <Button
+          type="submit"
+          disabled={!connected || !isValidAmount || isSubmitting}
+          className="w-full bg-primary hover:bg-primary/90 text-white"
+        >
+          {isSubmitting ? (
+            <>
+              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            buttonLabel
+          )}
+        </Button>
+
+        {transactionSignature && (
+          <div className="mt-4 p-3 bg-background border border-accent rounded-md">
+            <p className="text-sm font-medium mb-1">Transaction Successful!</p>
+            <a
+              href={`https://solscan.io/tx/${transactionSignature}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline break-all"
+            >
+              View transaction: {transactionSignature}
+            </a>
           </div>
-        </div>
+        )}
       </div>
-      
-      <Button 
-        onClick={handleSendSol} 
-        disabled={!connected || !isValidAmount || isSubmitting}
-        className="w-full h-10"
-      >
-        {isSubmitting ? "Processing..." : `Contribute ${amount} SOL`}
-      </Button>
-      
-      {/* Debug button - only for testing wallet connection */}
-      <Button 
-        onClick={() => {
-          console.log("Debug wallet state:", {
-            connected,
-            connecting,
-            wallet: wallet?.adapter.name,
-            publicKey: publicKey?.toString()
-          });
-          
-          if (wallet?.adapter && typeof wallet.adapter.connect === 'function') {
-            console.log("Attempting debug wallet reconnect...");
-            wallet.adapter.connect()
-              .then(() => console.log("Debug wallet connect successful"))
-              .catch(err => console.error("Debug wallet connect failed:", err));
-          }
-        }} 
-        className="w-full h-8 mt-2 text-xs bg-gray-700"
-        type="button"
-      >
-        Debug Wallet
-      </Button>
-      
-      {transactionSignature && (
-        <div className="text-xs text-muted-foreground">
-          <span>Transaction ID: </span>
-          <a 
-            href={`https://solscan.io/tx/${transactionSignature}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline truncate"
-          >
-            {formatAddress(transactionSignature)}
-          </a>
-        </div>
-      )}
-      
-      <div className="text-xs text-muted-foreground">
-        <p>
-          Tokens will be airdropped to <span className="font-medium">{connected && publicKey ? formatAddress(publicKey.toString()) : 'your connected wallet'}</span> after the presale ends.
-        </p>
-        <p className="mt-1">
-          Make sure to keep access to this wallet to receive your tokens.
-        </p>
-      </div>
-    </div>
+    </form>
   )
 } 
