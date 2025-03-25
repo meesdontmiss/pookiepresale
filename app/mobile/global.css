@@ -1,8 +1,23 @@
 /* Mobile-specific styles */
 body {
-  /* Allow scrolling but prevent pull-to-refresh */
-  overscroll-behavior-y: contain;
+  /* Allow scrolling without bouncing or pull-to-refresh */
+  overscroll-behavior: none;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  height: 100%;
+  padding-bottom: 80px; /* Ensure space at the bottom for the footer */
+}
+
+/* Ensure the page has enough height to accommodate all content */
+html {
+  height: -webkit-fill-available;
+}
+
+#__next {
+  min-height: 100vh;
+  /* mobile viewport fix */
+  min-height: -webkit-fill-available;
 }
 
 /* Override any desktop-specific styles for better mobile experience */
@@ -12,9 +27,16 @@ body {
 
 /* Ensure content is properly scrollable */
 html, body {
-  height: 100%;
   width: 100%;
   position: relative;
+}
+
+/* Footer positioning */
+footer {
+  position: relative;
+  width: 100%;
+  padding-bottom: 20px; /* Extra padding to prevent bounce at bottom */
+  margin-top: 2rem;
 }
 
 /* Ensure buttons are large enough for touch targets */

@@ -14,36 +14,51 @@ type GLTFResult = {
 
 // Strobe light component that alternates between purple and green
 function StrobeLight() {
-  const lightRef = useRef<THREE.PointLight>(null)
+  const spotlightRef = useRef<THREE.SpotLight>(null)
   const [color, setColor] = useState<'purple' | 'green'>('purple')
-  const purpleColor = new THREE.Color('#9400D3')
-  const greenColor = new THREE.Color('#00FF88')
+  
+  // More saturated colors
+  const purpleColor = new THREE.Color('#B700FF') // More saturated purple
+  const greenColor = new THREE.Color('#00FF99') // More saturated green
   
   // Create strobe effect
   useFrame(({ clock }) => {
-    if (lightRef.current) {
+    if (spotlightRef.current) {
       // Switch colors every half second
       const shouldBePurple = Math.sin(clock.getElapsedTime() * 5) > 0
       
       if (shouldBePurple && color !== 'purple') {
         setColor('purple')
-        lightRef.current.color = purpleColor
+        spotlightRef.current.color = purpleColor
       } else if (!shouldBePurple && color !== 'green') {
         setColor('green')
-        lightRef.current.color = greenColor
+        spotlightRef.current.color = greenColor
       }
       
       // Add some intensity variation for dramatic effect
-      lightRef.current.intensity = 0.5 + Math.sin(clock.getElapsedTime() * 10) * 0.3
+      spotlightRef.current.intensity = 1.0 + Math.sin(clock.getElapsedTime() * 10) * 0.5
     }
   })
   
   return (
     <>
+      {/* Main strobe spotlight from above */}
+      <spotLight 
+        ref={spotlightRef}
+        position={[0, 4, 0]} 
+        intensity={1.2}
+        angle={0.6} // Wider angle for more coverage (in radians)
+        penumbra={0.8} // Soft edges
+        color={color === 'purple' ? purpleColor : greenColor}
+        distance={15}
+        decay={1.5}
+        castShadow
+      />
+      
+      {/* Secondary fill light to spread the color around */}
       <pointLight 
-        ref={lightRef}
-        position={[2, 0, 4]} 
-        intensity={0.8}
+        position={[0, 1, 4]} 
+        intensity={0.3}
         color={color === 'purple' ? purpleColor : greenColor}
         distance={10}
         decay={2}
@@ -75,7 +90,7 @@ function PookieModel() {
   
   return (
     <group ref={modelRef} position={[0, -2, 0]} rotation={[0.1, 0, 0]}>
-      <primitive object={scene} scale={1.17} /> {/* Increased by 30% (0.9 * 1.3 = 1.17) */}
+      <primitive object={scene} scale={1.17} receiveShadow castShadow /> {/* Increased by 30% (0.9 * 1.3 = 1.17) */}
     </group>
   )
 }
@@ -110,9 +125,8 @@ export default function PookieModelMobile() {
         far={1000}
       />
       
-      <ambientLight intensity={0.4} /> {/* Reduced intensity to make strobe more visible */}
-      <pointLight position={[10, 10, 10]} intensity={0.6} />
-      <spotLight position={[0, 10, 5]} intensity={0.8} />
+      <ambientLight intensity={0.3} /> {/* Reduced ambient light to make strobe more prominent */}
+      <pointLight position={[10, 10, 10]} intensity={0.4} />
       
       {/* Add strobe light */}
       <StrobeLight />
