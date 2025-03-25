@@ -150,7 +150,7 @@ export default function WalletTransactionHandler({
         commitment: "confirmed",
         confirmTransactionInitialTimeout: 60000,
         httpHeaders: {
-          "Origin": window.location.origin
+          "Origin": typeof window !== 'undefined' ? window.location.origin : 'https://pookiepresale.vercel.app'
         }
       });
 
@@ -213,10 +213,16 @@ export default function WalletTransactionHandler({
         });
         
         try {
-          // Get connection
+          // Get connection - use a direct connection to Alchemy with explicit protocol
+          const alchemyConnection = new Connection("https://solana-mainnet.g.alchemy.com/v2/demo", {
+            commitment: "confirmed"
+          });
+          const { blockhash } = await alchemyConnection.getLatestBlockhash();
+          
+          // Get the Phantom wallet
           const phantomWallet = window.solana as PhantomWallet;
           
-          // Create direct transaction without getting blockhash
+          // Create direct transaction with blockhash
           const transaction = new Transaction().add(
             SystemProgram.transfer({
               fromPubkey: publicKey,
@@ -225,7 +231,11 @@ export default function WalletTransactionHandler({
             })
           );
           
-          // Let Phantom handle the transaction entirely
+          // Set the blockhash and payer
+          transaction.recentBlockhash = blockhash;
+          transaction.feePayer = publicKey;
+          
+          // Let Phantom handle signing and sending
           const signature = await phantomWallet.signAndSendTransaction(transaction);
           console.log("Transaction sent via direct Phantom method:", signature);
           
