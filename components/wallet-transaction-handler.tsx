@@ -23,6 +23,11 @@ const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com"
 
+// Log environment variables at runtime
+console.log("Environment variables loaded:");
+console.log("- TREASURY_WALLET:", TREASURY_WALLET);
+console.log("- SOLANA_RPC_URL:", SOLANA_RPC_URL);
+
 interface TransactionHandlerProps {
   maxAmount: number
   minAmount?: number
@@ -79,6 +84,10 @@ export default function WalletTransactionHandler({
   
   // Handle sending SOL
   const handleSendSol = async () => {
+    console.log("handleSendSol called, wallet connected:", connected);
+    console.log("Public key:", publicKey?.toString());
+    console.log("Treasury wallet:", TREASURY_WALLET);
+    
     if (!connected || !publicKey) {
       toast({ 
         title: "Wallet not connected", 
@@ -99,9 +108,35 @@ export default function WalletTransactionHandler({
       return
     }
     
+    // Verify treasury wallet
+    if (!TREASURY_WALLET) {
+      toast({ 
+        title: "Configuration error", 
+        description: "Treasury wallet not configured correctly. Please contact support.", 
+        variant: "destructive"
+      })
+      if (onError) onError(new Error("Treasury wallet not configured"))
+      return
+    }
+
     try {
+      // Validate treasury wallet is a valid Solana address
+      try {
+        new PublicKey(TREASURY_WALLET);
+      } catch (error) {
+        toast({ 
+          title: "Configuration error", 
+          description: "Invalid treasury wallet address. Please contact support.", 
+          variant: "destructive"
+        })
+        if (onError) onError(new Error("Invalid treasury wallet address"))
+        return
+      }
+      
       setIsSubmitting(true)
       playClickSound()
+      
+      console.log("Creating Solana connection with URL:", SOLANA_RPC_URL);
       
       // Connect to the Solana network
       const connection = new Connection(SOLANA_RPC_URL, {
@@ -109,25 +144,40 @@ export default function WalletTransactionHandler({
         confirmTransactionInitialTimeout: 60000 // 60 seconds timeout
       })
       
+      console.log("Getting latest blockhash...");
+      
       // Get recent blockhash
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("finalized")
+      console.log("Blockhash received:", blockhash);
       
       // Create a transaction to send SOL
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(TREASURY_WALLET),
-          lamports: amount * LAMPORTS_PER_SOL
-        })
-      )
+      const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
+      console.log("Creating transaction to send", lamports, "lamports (", amount, "SOL)");
+      
+      // Create instruction
+      const instruction = SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: new PublicKey(TREASURY_WALLET),
+        lamports: lamports
+      });
+      
+      // Create transaction with instruction
+      const transaction = new Transaction();
+      transaction.add(instruction);
       
       // Set transaction parameters
-      transaction.recentBlockhash = blockhash
-      transaction.feePayer = publicKey
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+      
+      console.log("Transaction created with instruction:", instruction);
+      console.log("Transaction created, sending to wallet for signing...");
       
       // Send the transaction
-      const signature = await sendTransaction(transaction, connection)
-      console.log("Transaction sent:", signature)
+      const signature = await sendTransaction(transaction, connection);
+      console.log("Transaction signed and sent:", signature);
+      
+      // Wait for confirmation with increased timeout
+      console.log("Waiting for confirmation...");
       
       // Wait for confirmation with increased timeout
       const confirmation = await connection.confirmTransaction({
