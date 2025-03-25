@@ -21,8 +21,8 @@ function PookieModel() {
   useEffect(() => {
     if (camera) {
       // Position the camera to properly frame the full body
-      camera.position.set(0, -0.5, 7)
-      camera.lookAt(0, -0.5, 0)
+      camera.position.set(0, -3, 7)
+      camera.lookAt(0, -3, 0)
     }
   }, [camera])
 
@@ -34,8 +34,8 @@ function PookieModel() {
   })
   
   return (
-    <group ref={modelRef} position={[0, -1, 0]} rotation={[0.1, 0, 0]}>
-      <primitive object={scene} scale={2.8} />
+    <group ref={modelRef} position={[0, -3, 0]} rotation={[0.1, 0, 0]}>
+      <primitive object={scene} scale={0.9} />
     </group>
   )
 }
@@ -64,8 +64,8 @@ export default function PookieModelMobile() {
       {/* Optimized camera setup for mobile */}
       <PerspectiveCamera
         makeDefault
-        position={[0, -0.5, 7]}
-        fov={45}
+        position={[0, -3, 7]}
+        fov={50}
         near={0.1}
         far={1000}
       />
@@ -80,8 +80,8 @@ export default function PookieModelMobile() {
         enableZoom={false}
         enablePan={false}
         rotateSpeed={0.4}
-        minPolarAngle={Math.PI / 3}
-        maxPolarAngle={Math.PI / 1.5}
+        minPolarAngle={Math.PI / 2.5}
+        maxPolarAngle={Math.PI / 1.8}
         dampingFactor={0.1}
         enableDamping
       />
