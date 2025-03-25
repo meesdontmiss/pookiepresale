@@ -57,15 +57,16 @@ interface TransactionHandlerProps {
 }
 
 // Utility function to get the best RPC connection
-const getBestConnection = async (fallbackUrls: string[]): Promise<Connection> => {
-  // Try using the wallet adapter connection first
+const getBestConnection = async (connection: Connection, fallbackUrls: string[]): Promise<Connection> => {
+  // Try using the provided connection first
   try {
     // Test the current connection
+    console.log("Testing existing connection...");
     await connection.getLatestBlockhash();
-    console.log("Using wallet adapter connection");
+    console.log("Using existing connection successfully");
     return connection;
   } catch (err) {
-    console.warn("Wallet adapter connection failed:", err);
+    console.warn("Existing connection failed:", err);
     
     // Fall back to trying each URL in the fallback list
     for (const endpoint of fallbackUrls) {
@@ -112,7 +113,7 @@ export default function WalletTransactionHandler({
   useEffect(() => {
     console.log("Wallet state changed:");
     console.log("- Connected:", connected);
-    console.log("- Wallet:", wallet?.adapter?.name);
+    console.log("- Wallet:", (wallet as any)?.adapter?.name);
     console.log("- PublicKey:", publicKey?.toString());
   }, [connected, wallet, publicKey]);
   
@@ -168,19 +169,21 @@ export default function WalletTransactionHandler({
       console.log("Starting transaction process...");
       console.log(`Connection object exists: ${!!connection}`);
       
-      // Use more reliable fallback RPC endpoints
+      // Use reliable fallback RPC endpoints
       const fallbackRpcEndpoints = [
-        "https://api.mainnet-beta.solana.com", // Try public endpoint first (just in case)
+        "https://solana-mainnet.g.alchemy.com/v2/demo", // Try Alchemy's endpoint first
+        "https://solana-api.projectserum.com", // Try Project Serum endpoint
+        "https://api.mainnet-beta.solana.com", // Try public endpoint
+        "https://rpc.ankr.com/solana", // Ankr endpoint
         "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4",
         "https://solana-mainnet.phantom.tech/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
         "https://solana-api.syndica.io/access-token/9iDftHLv5zEEVAoZt8PVTCx369RxJ845xdMu9UGevAGg9YdwzaiJpBzZGrL9vt3N/rpc",
-        "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/",
-        "https://solana-mainnet.g.alchemy.com/v2/demo",
+        "https://boldest-empty-bridge.solana-mainnet.quiknode.pro/4d8d5aa933a5aee3c9e72cf7119e279026eb4f11/"
       ];
       
       // Get the best available connection
       console.log("Finding best RPC connection...");
-      const bestConnection = await getBestConnection(fallbackRpcEndpoints);
+      const bestConnection = await getBestConnection(connection, fallbackRpcEndpoints);
       console.log("Found working RPC connection!");
 
       // Get latest blockhash
@@ -235,10 +238,10 @@ export default function WalletTransactionHandler({
       }
 
       // APPROACH 3: Direct adapter call as last resort
-      if (!signature && wallet.adapter) {
+      if (!signature && (wallet as any)?.adapter?.sendTransaction) {
         try {
           console.log("Using wallet adapter directly...");
-          signature = await wallet.adapter.sendTransaction(transaction, bestConnection);
+          signature = await (wallet as any).adapter.sendTransaction(transaction, bestConnection);
           console.log("Direct adapter transaction sent:", signature);
         } catch (adapterError) {
           console.error("All wallet methods failed:", adapterError);
