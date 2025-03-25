@@ -1,0 +1,2 @@
+[33md814265[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m Fix: Convert mobile page to Client Component to allow dynamic imports with ssr:false
+[33m625786b[m[33m ([m[1;31morigin/master[m[33m)[m Add Node.js version config and enhance Vercel deployment settings

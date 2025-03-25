@@ -1,0 +1,3 @@
+[33mb83f7cb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m Update Vercel config to use legacy-peer-deps flag for installation
+[33m8ff99a7[m Fix: Resolve routing conflict and add mobile detection API route
+[33mb467168[m Fix: Resolve routing conflict between mobile/page.tsx and mobile/route.ts
