@@ -18,7 +18,6 @@ import { Icons } from "@/components/icons"
 import { useToast } from '@/components/ui/use-toast'
 import { useSound } from '@/hooks/use-sound'
 import { verifyTransaction } from '@/lib/transactions'
-import { createReliableConnection } from '@/lib/solana-connection-patch'
 
 // Define the Phantom wallet interface for window.solana
 // Only declare in module scope (not global) to avoid conflicts with other definitions
@@ -146,103 +145,105 @@ export default function WalletTransactionHandler({
 
       console.log("Starting transaction process...");
       
-      // Create a reliable connection using our patch
-      console.log("Creating reliable Solana connection");
-      const bestConnection = createReliableConnection();
-
-      // Get latest blockhash
-      console.log("Getting latest blockhash...");
-      const { blockhash, lastValidBlockHeight } = await bestConnection.getLatestBlockhash("finalized");
-      console.log("Got latest blockhash:", blockhash);
-
-      // Create transaction
-      const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
-      const treasuryPubkey = new PublicKey(TREASURY_WALLET);
-      
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: treasuryPubkey,
-          lamports
-        })
-      );
-
-      // Set transaction parameters
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      let signature: string | undefined;
-
-      // APPROACH 1: Try using Phantom's native method directly (if available)
-      if (typeof window !== 'undefined' && 'solana' in window) {
-        const phantomWallet = window.solana as PhantomWallet;
-        if (phantomWallet?.isPhantom) {
-          try {
-            console.log("Using Phantom's native transaction method...");
-            await phantomWallet.connect(); // Ensure connection is fresh
-            signature = await phantomWallet.signAndSendTransaction(transaction);
-            console.log("Phantom transaction sent:", signature);
-          } catch (phantomError) {
-            console.warn("Phantom native method failed:", phantomError);
-            // Don't throw, let it fall through to adapter method
-          }
+      // Create a connection to GenesysGo - a reliable endpoint that works in browsers
+      const bestConnection = new Connection("https://free.rpcpool.com", {
+        commitment: "confirmed",
+        confirmTransactionInitialTimeout: 60000,
+        httpHeaders: {
+          "Origin": window.location.origin
         }
-      }
-
-      // APPROACH 2: If Phantom method wasn't available or failed, try wallet adapter hook
-      if (!signature) {
-        try {
-          console.log("Using wallet adapter sendTransaction hook...");
-          signature = await sendTransaction(transaction, bestConnection);
-          console.log("Hook transaction sent:", signature);
-        } catch (adapterError) {
-          console.warn("Wallet adapter hook failed:", adapterError);
-          // Don't throw, try the next method
-        }
-      }
-
-      // APPROACH 3: Direct adapter call as last resort
-      if (!signature && (wallet as any)?.adapter?.sendTransaction) {
-        try {
-          console.log("Using wallet adapter directly...");
-          signature = await (wallet as any).adapter.sendTransaction(transaction, bestConnection);
-          console.log("Direct adapter transaction sent:", signature);
-        } catch (adapterError) {
-          console.error("All wallet methods failed:", adapterError);
-          throw adapterError;
-        }
-      }
-
-      if (!signature) {
-        throw new Error("No wallet method available to send transaction");
-      }
-
-      // Wait for confirmation
-      console.log("Waiting for confirmation...");
-      const confirmationResponse = await bestConnection.confirmTransaction({
-        signature,
-        blockhash,
-        lastValidBlockHeight
-      }, "confirmed");
-
-      if (confirmationResponse.value.err) {
-        throw new Error(`Transaction failed: ${confirmationResponse.value.err.toString()}`);
-      }
-
-      console.log("Transaction confirmed:", confirmationResponse);
-
-      // Transaction successful
-      setTransactionSignature(signature);
-      await verifyTransaction(signature, publicKey.toString(), amount);
-      playSound(SUCCESS_SOUND_PATH, 0.3);
-      
-      toast({
-        title: "Contribution successful!",
-        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
       });
 
-      if (onSuccess) onSuccess(signature, amount);
+      console.log("Getting latest blockhash...");
+      
+      try {
+        // Get latest blockhash
+        const { blockhash, lastValidBlockHeight } = await bestConnection.getLatestBlockhash("finalized");
+        console.log("Got latest blockhash:", blockhash);
 
+        // Create transaction
+        const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
+        const treasuryPubkey = new PublicKey(TREASURY_WALLET);
+        
+        const transaction = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: treasuryPubkey,
+            lamports
+          })
+        );
+
+        // Set transaction parameters
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+
+        // Use wallet.sendTransaction which handles signing correctly
+        console.log("Sending transaction using wallet adapter...");
+        const signature = await sendTransaction(transaction, bestConnection);
+        console.log("Transaction sent:", signature);
+
+        // Wait for confirmation
+        console.log("Waiting for confirmation...");
+        const confirmationResponse = await bestConnection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight
+        }, "confirmed");
+
+        console.log("Transaction confirmed:", confirmationResponse);
+
+        // Transaction successful
+        setTransactionSignature(signature);
+        await verifyTransaction(signature, publicKey.toString(), amount);
+        playSound(SUCCESS_SOUND_PATH, 0.3);
+        
+        toast({
+          title: "Contribution successful!",
+          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+        });
+
+        if (onSuccess) onSuccess(signature, amount);
+      } catch (blockhashError) {
+        console.error("Blockhash or transaction error:", blockhashError);
+        
+        // Try alternate method that's more direct and bypasses the most common points of failure
+        toast({
+          title: "Trying alternate method...",
+          description: "First attempt failed, trying alternative approach"
+        });
+        
+        try {
+          // Get connection
+          const phantomWallet = window.solana as PhantomWallet;
+          
+          // Create direct transaction without getting blockhash
+          const transaction = new Transaction().add(
+            SystemProgram.transfer({
+              fromPubkey: publicKey,
+              toPubkey: new PublicKey(TREASURY_WALLET),
+              lamports: Math.floor(amount * LAMPORTS_PER_SOL)
+            })
+          );
+          
+          // Let Phantom handle the transaction entirely
+          const signature = await phantomWallet.signAndSendTransaction(transaction);
+          console.log("Transaction sent via direct Phantom method:", signature);
+          
+          // Success handling
+          setTransactionSignature(signature);
+          await verifyTransaction(signature, publicKey.toString(), amount);
+          
+          toast({
+            title: "Transaction successful!",
+            description: `Thank you for contributing ${amount} SOL.`
+          });
+          
+          if (onSuccess) onSuccess(signature, amount);
+        } catch (directError) {
+          console.error("Direct transaction method failed:", directError);
+          throw directError;
+        }
+      }
     } catch (error: unknown) {
       console.error("Transaction error:", error);
       toast({
