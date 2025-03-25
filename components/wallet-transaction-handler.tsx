@@ -182,41 +182,70 @@ export default function WalletTransactionHandler({
       console.log("Transaction created, sending to wallet for signing...");
       
       // Send the transaction with explicit options to trigger wallet popup
-      const signature = await sendTransaction(transaction, connection, {
-        skipPreflight: false,
-        preflightCommitment: "confirmed",
-        maxRetries: 5
-      });
-      console.log("Transaction signed and sent:", signature);
-      
-      // Wait for confirmation with increased timeout
-      console.log("Waiting for confirmation...");
-      
-      // Wait for confirmation with increased timeout
-      const confirmation = await connection.confirmTransaction({
-        blockhash, 
-        lastValidBlockHeight,
-        signature
-      }, "confirmed")
-      console.log("Transaction confirmed:", confirmation)
-      
-      // Save the transaction signature
-      setTransactionSignature(signature)
-      
-      // Verify transaction on the server
-      await verifyTransaction(signature, publicKey.toString(), amount)
-      
-      // Play success sound
-      playSound(SUCCESS_SOUND_PATH, 0.3)
-      
-      // Show success message
-      toast({
-        title: "Contribution successful!",
-        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
-      })
-      
-      // Call success callback
-      if (onSuccess) onSuccess(signature, amount)
+      try {
+        if (!wallet || !wallet.adapter) {
+          console.error("No wallet adapter available");
+          throw new Error("Your wallet isn't properly connected. Please reconnect your wallet.");
+        }
+        
+        let signature;
+        
+        // Try primary send method
+        try {
+          if (wallet.adapter.sendTransaction) {
+            console.log("Using wallet adapter sendTransaction...");
+            signature = await wallet.adapter.sendTransaction(transaction, connection);
+          } else {
+            throw new Error("Wallet doesn't support sendTransaction");
+          }
+        } catch (sendError) {
+          console.error("Error with sendTransaction, trying manual sign fallback:", sendError);
+          
+          // Fallback to manual sign + send
+          if (wallet.adapter.signTransaction) {
+            console.log("Using manual sign + send fallback...");
+            const signedTransaction = await wallet.adapter.signTransaction(transaction);
+            signature = await connection.sendRawTransaction(signedTransaction.serialize());
+          } else {
+            console.error("Wallet supports neither sendTransaction nor signTransaction");
+            throw new Error("Your wallet doesn't support the required transaction methods");
+          }
+        }
+        
+        console.log("Transaction signed and sent:", signature);
+        
+        // Wait for confirmation with increased timeout
+        console.log("Waiting for confirmation...");
+        
+        // Wait for confirmation with increased timeout
+        const confirmation = await connection.confirmTransaction({
+          blockhash, 
+          lastValidBlockHeight,
+          signature
+        }, "confirmed");
+        console.log("Transaction confirmed:", confirmation);
+        
+        // Save the transaction signature
+        setTransactionSignature(signature);
+        
+        // Verify transaction on the server
+        await verifyTransaction(signature, publicKey.toString(), amount);
+        
+        // Play success sound
+        playSound(SUCCESS_SOUND_PATH, 0.3);
+        
+        // Show success message
+        toast({
+          title: "Contribution successful!",
+          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+        });
+        
+        // Call success callback
+        if (onSuccess) onSuccess(signature, amount);
+      } catch (error) {
+        console.error("Transaction error in wallet send:", error);
+        throw error;
+      }
       
     } catch (error) {
       console.error("Transaction error:", error)
@@ -278,6 +307,29 @@ export default function WalletTransactionHandler({
         className="w-full h-10"
       >
         {isSubmitting ? "Processing..." : `Contribute ${amount} SOL`}
+      </Button>
+      
+      {/* Debug button - only for testing wallet connection */}
+      <Button 
+        onClick={() => {
+          console.log("Debug wallet state:", {
+            connected,
+            connecting,
+            wallet: wallet?.adapter.name,
+            publicKey: publicKey?.toString()
+          });
+          
+          if (wallet?.adapter && typeof wallet.adapter.connect === 'function') {
+            console.log("Attempting debug wallet reconnect...");
+            wallet.adapter.connect()
+              .then(() => console.log("Debug wallet connect successful"))
+              .catch(err => console.error("Debug wallet connect failed:", err));
+          }
+        }} 
+        className="w-full h-8 mt-2 text-xs bg-gray-700"
+        type="button"
+      >
+        Debug Wallet
       </Button>
       
       {transactionSignature && (
