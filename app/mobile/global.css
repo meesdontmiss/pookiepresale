@@ -1,9 +1,8 @@
 /* Mobile-specific styles */
 body {
-  /* Allow normal scrolling */
+  /* Allow scrolling but prevent pull-to-refresh */
+  overscroll-behavior-y: contain;
   overflow-y: auto;
-  margin: 0;
-  padding: 0;
 }
 
 /* Ensure the page has enough height to accommodate all content */
@@ -24,6 +23,7 @@ html {
 
 /* Ensure content is properly scrollable */
 html, body {
+  height: 100%;
   width: 100%;
   position: relative;
 }
@@ -73,8 +73,8 @@ p, a, span, div {
 /* Improved 3D model container for mobile */
 .model-container {
   width: 100%;
-  height: 90vw; /* Height proportional to width for better scaling */
-  max-height: 450px;
+  height: 80vw; /* Height proportional to width for better scaling */
+  max-height: 400px;
   overflow: visible;
   position: relative;
   margin-bottom: 1rem;
