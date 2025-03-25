@@ -11,6 +11,9 @@ import PresaleStats from '@/components/presale/presale-stats'
 import { useToast } from "@/components/ui/use-toast" 
 import { playSound } from "@/hooks/use-audio"
 
+// Define custom event name constant
+const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
+
 // Dynamically import the 3D model component with no SSR
 const PookieModel = dynamic(
   () => import('@/components/pookie-model-mobile'),
@@ -24,9 +27,20 @@ interface Notification {
   timestamp: number
 }
 
+interface PresaleStats {
+  raised: number
+  cap: number
+  contributors: number | null
+}
+
 export default function MobilePage() {
   const [mounted, setMounted] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [presaleStats, setPresaleStats] = useState<PresaleStats>({
+    raised: 0,
+    cap: 75,
+    contributors: 0
+  })
   const { toast } = useToast()
 
   useEffect(() => {
@@ -84,13 +98,29 @@ export default function MobilePage() {
       }
     }
     
-    // Add event listener for direct contributions
+    // Listen for progress update events
+    const handleProgressUpdate = (event: CustomEvent) => {
+      if (event.detail) {
+        console.log('Mobile: Progress update received:', event.detail)
+        
+        // Update local state with the latest presale stats
+        setPresaleStats({
+          raised: event.detail.raised || 0,
+          cap: event.detail.cap || 75,
+          contributors: event.detail.contributors || null
+        })
+      }
+    }
+    
+    // Add event listeners
     window.addEventListener('pookie-new-contribution', handleDirectContribution as EventListener)
+    window.addEventListener(PROGRESS_UPDATE_EVENT, handleProgressUpdate as EventListener)
     
     // Cleanup function
     return () => {
       subscription.unsubscribe()
       window.removeEventListener('pookie-new-contribution', handleDirectContribution as EventListener)
+      window.removeEventListener(PROGRESS_UPDATE_EVENT, handleProgressUpdate as EventListener)
     }
   }, [mounted])
   

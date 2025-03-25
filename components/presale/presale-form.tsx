@@ -4,20 +4,126 @@ import { useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/use-toast"
+import { Check, ExternalLink } from "lucide-react"
+import { playSound } from "@/hooks/use-audio"
+
+// Define constant for custom event
+const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
+const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
 
 // Predefined SOL contribution amounts
 const PUBLIC_CONTRIBUTION_AMOUNT = 0.25
 const PRIVATE_CONTRIBUTION_OPTIONS = [0.5, 1.0, 1.5, 2.0]
+
+// Format wallet address for display
+const formatWalletAddress = (address: string): string => {
+  if (!address) return ''
+  return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`
+}
+
+// Function to monitor treasury wallet balance
+const monitorTreasuryBalance = async () => {
+  try {
+    if (typeof window === 'undefined') return null;
+    
+    const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+    const baseUrl = window.location.origin;
+    const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+    
+    // Get treasury balance - try multiple times if we get zero
+    let retryCount = 0;
+    let solBalance = 0;
+    
+    while (solBalance <= 0 && retryCount < 3) {
+      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
+      solBalance = treasuryBalance / LAMPORTS_PER_SOL;
+      
+      if (solBalance <= 0) {
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        retryCount++;
+      }
+    }
+    
+    console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
+    
+    // Only dispatch event if we got a valid balance
+    if (solBalance > 0) {
+      // Update the progress bar based on the actual wallet balance
+      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+        detail: {
+          raised: solBalance,
+          cap: 75, // Keep the cap at 75 SOL
+          contributors: null // We don't know the exact contributor count from the wallet balance
+        }
+      });
+      window.dispatchEvent(event);
+    }
+    
+    return solBalance > 0 ? solBalance : null;
+  } catch (error) {
+    console.error('Error monitoring treasury balance:', error);
+    return null;
+  }
+};
+
+// Function to immediately refresh presale stats after a successful contribution
+const refreshPresaleStats = async () => {
+  try {
+    // First, check the treasury wallet balance directly
+    const treasuryBalance = await monitorTreasuryBalance();
+    
+    // Then fetch stats from the API to update contributor count
+    const response = await fetch('/api/presale/stats');
+    if (!response.ok) throw new Error('Failed to fetch presale stats');
+    
+    const data = await response.json();
+    if (data.success) {
+      // Only dispatch if we have valid data
+      const apiRaisedAmount = Number(data.stats.total_raised || 0);
+      const validRaisedAmount = treasuryBalance !== null ? treasuryBalance : apiRaisedAmount;
+      
+      if (validRaisedAmount > 0) {
+        // Dispatch a custom event with the latest stats to update progress bar
+        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+          detail: {
+            // Use treasury balance if available, otherwise use API data
+            raised: validRaisedAmount,
+            cap: Number(data.stats.cap || 75),
+            contributors: Number(data.stats.contributors || 0)
+          }
+        });
+        window.dispatchEvent(event);
+        
+        console.log('Stats refreshed after contribution:', 
+          treasuryBalance !== null ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : `API data: ${apiRaisedAmount} SOL`);
+      }
+    }
+    
+    // Set up a follow-up check after a short delay to ensure the stats are updated
+    setTimeout(async () => {
+      await monitorTreasuryBalance();
+    }, 5000);
+  } catch (error) {
+    console.error('Error refreshing presale stats:', error);
+  }
+};
 
 export default function PreSaleForm() {
   const { publicKey, signTransaction, connected } = useWallet()
   const [selectedAmount, setSelectedAmount] = useState<number>(0.25)
   const [isPrivateSale, setIsPrivateSale] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { toast } = useToast()
 
   const handleContribute = async () => {
     if (!publicKey || !connected) {
-      alert("Please connect your wallet first")
+      toast({
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet first",
+        variant: "destructive"
+      })
       return
     }
 
@@ -30,8 +136,14 @@ export default function PreSaleForm() {
         throw new Error('Treasury wallet not configured')
       }
       
+      // Display preparing transaction toast
+      toast({
+        title: "Preparing transaction",
+        description: `Please approve the transaction for ${selectedAmount} SOL in your wallet`,
+      })
+      
       // Use @solana/web3.js to create and send the transaction
-      const { Connection, SystemProgram, Transaction, PublicKey } = await import('@solana/web3.js')
+      const { Connection, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
       
       // Create connection to Solana using our API proxy to avoid 403 errors
       let connection;
@@ -50,7 +162,7 @@ export default function PreSaleForm() {
         SystemProgram.transfer({
           fromPubkey: publicKey,
           toPubkey: new PublicKey(treasuryWallet),
-          lamports: selectedAmount * 1000000000, // Convert SOL to lamports
+          lamports: selectedAmount * LAMPORTS_PER_SOL, // Convert SOL to lamports
         })
       )
       
@@ -70,6 +182,14 @@ export default function PreSaleForm() {
       // Wait for confirmation
       await connection.confirmTransaction(signature, 'confirmed')
       
+      // Play success sound
+      playSound('/sounds/notification.wav')
+      
+      toast({
+        title: "Transaction sent!",
+        description: "Verifying your contribution...",
+      })
+      
       // Verify with our API
       const verifyResponse = await fetch('/api/transactions/verify', {
         method: 'POST',
@@ -88,12 +208,52 @@ export default function PreSaleForm() {
         throw new Error('Failed to verify transaction')
       }
       
-      alert("Thank you for your contribution!")
+      // Manually trigger a live notification for immediate feedback
+      const notificationEvent = new CustomEvent('pookie-new-contribution', { 
+        detail: {
+          wallet: formatWalletAddress(publicKey.toString()),
+          amount: selectedAmount,
+          timestamp: Date.now()
+        }
+      });
+      window.dispatchEvent(notificationEvent);
+      
+      // Show success notification with transaction link
+      toast({
+        title: "Contribution successful!",
+        description: (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1 text-green-500">
+              <Check size={16} className="flex-shrink-0" />
+              <span>Transaction confirmed on Solana blockchain</span>
+            </div>
+            <p>You contributed {selectedAmount} SOL to the POOKIE presale.</p>
+            <a 
+              href={`https://solscan.io/tx/${signature}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-1"
+            >
+              <ExternalLink size={12} />
+              <span>View transaction on Solscan</span>
+            </a>
+          </div>
+        ),
+        duration: 8000,
+      })
+      
+      // Immediately refresh the presale stats to update the progress bar
+      refreshPresaleStats()
+      
       setSelectedAmount(0.25)
       
     } catch (error) {
       console.error("Contribution error:", error)
-      alert("Transaction failed. Please try again.")
+      toast({
+        title: "Transaction failed",
+        description: error instanceof Error ? error.message : "Failed to complete transaction",
+        variant: "destructive"
+      })
     } finally {
       setIsSubmitting(false)
     }
