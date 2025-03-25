@@ -43,7 +43,6 @@ interface ContributionFormProps {
 export default function ContributionForm({ maxContribution, tier, onClose }: ContributionFormProps) {
   const { publicKey, signTransaction, connected } = useWallet()
   const [amount, setAmount] = useState<string>(tier === "public" ? "0.25" : "0.5")
-  const [address, setAddress] = useState<string>("")
   const [isContributing, setIsContributing] = useState(false)
   const [selectedOption, setSelectedOption] = useState<number>(tier === "public" ? 0.25 : 0.5)
   const [showCelebration, setShowCelebration] = useState(false)
@@ -178,7 +177,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           throw new Error(verifyResult.error || 'Failed to verify transaction');
         }
         
-        // Calculate token amounts - no bonus now that we removed vesting
+        // Calculate token amounts
         const { baseTokens, totalTokens } = calculateTokens(numericAmount, 0);
         
         useToastToast({
@@ -315,18 +314,14 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
             </div>
           </div>
           
-          {/* Wallet address */}
-          <div>
-            <Label htmlFor="wallet" className="text-xs">Solana Wallet Address</Label>
-            <Input
-              id="wallet"
-              type="text"
-              placeholder="Enter your Solana wallet address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="h-8 text-sm mt-1"
-              required
-            />
+          <div className="flex items-start gap-2 rounded-md bg-blue-900/20 p-2 text-xs">
+            <Info className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-400" />
+            <div>
+              <p className="font-medium text-blue-400">Wallet Connected</p>
+              <p className="mt-1 text-blue-300">
+                Using wallet: {publicKey ? `${publicKey.toString().substring(0, 4)}...${publicKey.toString().substring(publicKey.toString().length - 4)}` : 'Not connected'}
+              </p>
+            </div>
           </div>
         
           {/* Action buttons */}
@@ -341,7 +336,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
             <Button 
               type="submit" 
               className="flex-1 h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-              disabled={isContributing}
+              disabled={isContributing || !publicKey}
             >
               {isContributing ? "Processing..." : `Contribute ${selectedOption} SOL`}
             </Button>
