@@ -1,141 +1,25 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useWallet, useConnection } from '@solana/wallet-adapter-react'
+import { useWallet } from '@solana/wallet-adapter-react'
 import { 
-  Connection, 
   PublicKey, 
   Transaction, 
   SystemProgram, 
   LAMPORTS_PER_SOL,
-  clusterApiUrl
+  Connection
 } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { toast } from '@/components/ui/use-toast'
-import { playClickSound, playSound } from '@/hooks/use-audio'
-import { motion } from "framer-motion"
-import { Icons } from "@/components/icons"
 import { useToast } from '@/components/ui/use-toast'
-import { useSound } from '@/hooks/use-sound'
+import { Icons } from "@/components/icons"
 import { verifyTransaction } from '@/lib/transactions'
-
-// Define the Phantom wallet interface for window.solana
-// Only declare in module scope (not global) to avoid conflicts with other definitions
-type PhantomWallet = {
-  connect: () => Promise<void>;
-  signAndSendTransaction: (transaction: Transaction) => Promise<string>;
-  isPhantom?: boolean;
-  publicKey?: PublicKey;
-}
-
-// Sound paths
-const CLICK_SOUND_PATH = '/sounds/click.mp3'
-const SUCCESS_SOUND_PATH = '/sounds/success.mp3'
-
-// Local RPC proxy URL - avoids CORS issues
-const RPC_PROXY_URL = '/api/rpc/proxy';
-
-// Custom Connection class that uses our server-side proxy
-class ProxyConnection extends Connection {
-  constructor() {
-    // Use any URL here, it will be overridden by our fetch implementation
-    super('https://api.mainnet-beta.solana.com');
-  }
-
-  async _fetch(method: string, params: any) {
-    try {
-      console.log(`ProxyConnection: calling ${method}`, params);
-      
-      const response = await fetch(RPC_PROXY_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: Date.now().toString(),
-          method,
-          params,
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(`RPC error: ${JSON.stringify(data.error)}`);
-      }
-      
-      return data.result;
-    } catch (error) {
-      console.error('ProxyConnection fetch error:', error);
-      throw error;
-    }
-  }
-
-  // Override the required methods to use our proxy
-  override async getLatestBlockhash(commitment?: any): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
-    const result = await this._fetch('getLatestBlockhash', [{ commitment: commitment || 'finalized' }]);
-    return {
-      blockhash: result.blockhash,
-      lastValidBlockHeight: result.lastValidBlockHeight,
-    };
-  }
-  
-  override async getBlockHeight(commitment?: any): Promise<number> {
-    return this._fetch('getBlockHeight', [{ commitment: commitment || 'finalized' }]);
-  }
-  
-  override async confirmTransaction(
-    signatureOrConfirmOptions: any,
-    commitment?: any
-  ): Promise<any> {
-    try {
-      let params;
-      
-      if (typeof signatureOrConfirmOptions === 'string') {
-        params = [signatureOrConfirmOptions, { commitment: commitment || 'confirmed' }];
-      } else {
-        params = [{
-          signature: signatureOrConfirmOptions.signature,
-          blockhash: signatureOrConfirmOptions.blockhash,
-          lastValidBlockHeight: signatureOrConfirmOptions.lastValidBlockHeight
-        }, commitment || 'confirmed'];
-      }
-      
-      const result = await this._fetch('confirmTransaction', params);
-      
-      // Return in the format expected by wallet-adapter
-      return {
-        context: { slot: 0 },
-        value: { err: result?.err || null }
-      };
-    } catch (error) {
-      console.error('Error confirming transaction:', error);
-      // Return a default response structure on error
-      return {
-        context: { slot: 0 },
-        value: { err: 'Failed to confirm transaction' }
-      };
-    }
-  }
-}
-
-// Create a singleton proxy connection
-const proxyConnection = new ProxyConnection();
 
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
 
-// Log environment variables at runtime
-console.log("Environment variables loaded:");
-console.log("- TREASURY_WALLET:", TREASURY_WALLET);
-console.log("- RPC_URL:", process.env.NEXT_PUBLIC_SOLANA_RPC_URL);
-console.log("- Using RPC Proxy:", RPC_PROXY_URL);
+// Create a connection to the Solana devnet
+const connection = new Connection("https://api.mainnet-beta.solana.com", 'confirmed');
 
 interface TransactionHandlerProps {
   minAmount?: number
@@ -156,31 +40,18 @@ export default function WalletTransactionHandler({
   buttonLabel = "Contribute",
   tier = 'public'
 }: TransactionHandlerProps) {
-  const { connection: defaultConnection } = useConnection()
   const wallet = useWallet()
-  const { publicKey, connected, sendTransaction } = wallet
   const { toast } = useToast()
   const [amount, setAmount] = useState<number>(minAmount)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
-  const [displayedAddress, setDisplayedAddress] = useState<string>("")
   
   // Validate amount
   const isValidAmount = amount >= minAmount && amount <= maxAmount
   
-  // Format wallet address for display
-  useEffect(() => {
-    if (publicKey) {
-      const address = publicKey.toString();
-      setDisplayedAddress(address.substring(0, 4) + '...' + address.substring(address.length - 4));
-    } else {
-      setDisplayedAddress("");
-    }
-  }, [publicKey]);
-  
   // Handle sending SOL
   const handleSendSol = async () => {
-    if (!connected || !publicKey) {
+    if (!wallet.connected || !wallet.publicKey) {
       toast({ 
         title: "Wallet not connected", 
         description: "Please connect your wallet to continue", 
@@ -200,81 +71,59 @@ export default function WalletTransactionHandler({
       return;
     }
 
-    if (!TREASURY_WALLET) {
-      toast({ 
-        title: "Configuration error", 
-        description: "Treasury wallet not configured correctly", 
-        variant: "destructive"
-      });
-      if (onError) onError(new Error("Treasury wallet not configured"));
-      return;
-    }
-
+    setIsSubmitting(true);
+    
     try {
-      setIsSubmitting(true);
-      playClickSound();
-
-      // Create transaction
-      const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
-      const treasuryPubkey = new PublicKey(TREASURY_WALLET);
+      // Create a transaction
+      const transaction = new Transaction();
       
-      const transaction = new Transaction().add(
+      // Add instructions to send SOL
+      transaction.add(
         SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: treasuryPubkey,
-          lamports
+          fromPubkey: wallet.publicKey,
+          toPubkey: new PublicKey(TREASURY_WALLET),
+          lamports: Math.floor(amount * LAMPORTS_PER_SOL)
         })
       );
-
-      // Handle transaction directly with wallet adapter
-      console.log("Sending transaction...");
-      let signature;
       
+      // Get the latest blockhash
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = wallet.publicKey;
+      
+      // Sign and send the transaction
+      const signature = await wallet.sendTransaction(transaction, connection);
+      console.log('Transaction sent:', signature);
+      
+      // Set the transaction signature
+      setTransactionSignature(signature);
+      
+      // Verify the transaction
       try {
-        // Use default connection from wallet adapter
-        signature = await sendTransaction(transaction, defaultConnection);
-        console.log("Transaction sent:", signature);
-        
-        // Transaction successful
-        setTransactionSignature(signature);
-        
-        // Verify transaction in backend
-        await verifyTransaction(signature, publicKey.toString(), amount);
-        
-        playSound(SUCCESS_SOUND_PATH, 0.3);
-        
-        toast({
-          title: "Contribution successful!",
-          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
-        });
-
-        if (onSuccess) onSuccess(signature, amount);
-      } catch (error) {
-        console.error("Transaction error:", error);
-        toast({
-          title: "Transaction failed",
-          description: error instanceof Error ? error.message : "Please try again later",
-          variant: "destructive"
-        });
-        if (onError) onError(error instanceof Error ? error : new Error("Failed to send transaction"));
+        await verifyTransaction(signature, wallet.publicKey.toString(), amount);
+      } catch (err) {
+        console.warn('Verification warning:', err);
+        // Continue even if verification has issues
       }
+      
+      // Show success message
+      toast({
+        title: "Contribution successful!",
+        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+      });
+      
+      if (onSuccess) onSuccess(signature, amount);
     } catch (error) {
-      console.error("Transaction setup error:", error);
+      console.error('Transaction error:', error);
       toast({
         title: "Transaction failed",
         description: error instanceof Error ? error.message : "Please try again later",
         variant: "destructive"
       });
-      if (onError) onError(error instanceof Error ? error : new Error("Transaction failed"));
+      if (onError) onError(error instanceof Error ? error : new Error("Failed to send transaction"));
     } finally {
       setIsSubmitting(false);
     }
-  };
-  
-  // Format the displayed wallet address for better UX
-  const formatAddress = (address: string) => {
-    if (!address) return '';
-    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
   
   return (
@@ -316,7 +165,7 @@ export default function WalletTransactionHandler({
 
         <Button
           type="submit"
-          disabled={!connected || !isValidAmount || isSubmitting}
+          disabled={!wallet.connected || !isValidAmount || isSubmitting}
           className="w-full bg-primary hover:bg-primary/90 text-white"
         >
           {isSubmitting ? (
