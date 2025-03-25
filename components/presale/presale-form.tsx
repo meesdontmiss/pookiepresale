@@ -34,11 +34,16 @@ export default function PreSaleForm() {
       // Use @solana/web3.js to create and send the transaction
       const { Connection, SystemProgram, Transaction, PublicKey } = await import('@solana/web3.js')
       
-      // Create connection to Solana
-      const connection = new Connection(
-        process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 
-        'confirmed'
-      )
+      // Create connection to Solana using our API proxy to avoid 403 errors
+      let connection;
+      
+      // Use our proxy URL in the browser, but fall back to the env var for server-side
+      if (typeof window !== 'undefined') {
+        connection = new Connection('/api/rpc/proxy', 'confirmed');
+      } else {
+        // Server-side connection (should not be used from client components, but adding for completeness)
+        connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+      }
       
       // Create a transaction to send SOL to treasury
       const transaction = new Transaction().add(

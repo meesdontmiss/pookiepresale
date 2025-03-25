@@ -277,6 +277,10 @@ export default function Home() {
         } else if (e.key === 's') {
           playClickSound();
           window.location.href = '/staking';
+        } else if (e.key === 'd') {
+          // Debug page shortcut
+          playClickSound();
+          window.location.href = '/debug';
         }
       }
     };
@@ -469,22 +473,10 @@ export default function Home() {
                   href="https://X.com/pookiethepeng"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-8 w-8 items-center justify-center rounded-md bg-background/80 border-2 border-primary/70 text-primary hover:bg-primary/10 animate-glow"
-                  onClick={(e) => {
-                    // Stop event propagation to prevent the 3D scene from capturing it
-                    e.preventDefault();
-                    e.stopPropagation();
-                    
-                    // Play sound
-                    playClickSound();
-                    
-                    // Navigate after a tiny delay to ensure sound plays
-                    setTimeout(() => {
-                      window.open("https://X.com/pookiethepeng", "_blank");
-                    }, 10);
-                  }}
+                  onClick={() => playClickSound()}
+                  className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-primary"
                 >
-                  <TwitterIcon size={16} className="text-primary" />
+                  <TwitterIcon size={16} />
                 </a>
               </motion.div>
               
@@ -525,6 +517,29 @@ export default function Home() {
               >
                 <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 h-8" />
               </motion.div>
+
+              {/* Debug Button - only visible in development or when holding Alt key */}
+              {process.env.NODE_ENV === 'development' && (
+                <motion.div 
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.95 }}
+                  className="pointer-events-auto"
+                >
+                  <Button 
+                    className="h-8 bg-background/80 border border-gray-500 text-gray-500 hover:bg-gray-200/10"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      playClickSound();
+                      setTimeout(() => {
+                        window.location.href = '/debug';
+                      }, 10);
+                    }}
+                  >
+                    <span className="text-xs">Debug</span>
+                  </Button>
+                </motion.div>
+              )}
             </div>
           </div>
         </motion.header>

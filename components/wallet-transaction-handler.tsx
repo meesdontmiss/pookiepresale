@@ -18,8 +18,15 @@ import { verifyTransaction } from '@/lib/transactions'
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
 
-// Create a connection to the Solana devnet
-const connection = new Connection("https://api.mainnet-beta.solana.com", 'confirmed');
+// Create a connection to the Solana API proxy to avoid 403 errors
+const connection = new Connection("/api/rpc/proxy", 'confirmed');
+
+// For Node.js environments which can't use relative URLs
+if (typeof window === 'undefined') {
+  // Use a fallback RPC URL for server-side operations
+  const fallbackRpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+  // We don't actually use this connection server-side, but define it for TypeScript
+}
 
 interface TransactionHandlerProps {
   minAmount?: number

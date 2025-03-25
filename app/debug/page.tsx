@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import DebugHelper from '@/components/debug-helper'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js'
+import Link from 'next/link'
 
 export default function DebugPage() {
   const [networkStatus, setNetworkStatus] = useState<'loading' | 'connected' | 'error'>('loading');
@@ -13,7 +14,8 @@ export default function DebugPage() {
     async function checkConnection() {
       try {
         const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG";
-        const connection = new Connection("https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4");
+        // Use our proxy endpoint to avoid 403 errors
+        const connection = new Connection("/api/rpc/proxy");
         
         // Test connection
         const slot = await connection.getSlot();
@@ -35,6 +37,10 @@ export default function DebugPage() {
   return (
     <div className="container max-w-3xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Solana Connection Debug Page</h1>
+      
+      <div className="mb-4">
+        <Link href="/" className="text-primary hover:underline">← Back to Home</Link>
+      </div>
       
       <div className="mb-8 p-4 border rounded-md">
         <h2 className="text-xl font-semibold mb-4">Network Status</h2>
@@ -73,7 +79,7 @@ export default function DebugPage() {
       
       <div className="mt-8 text-sm text-gray-500">
         <p>This page tests various RPC endpoints to determine which ones are working reliably.</p>
-        <p>If you're experiencing 403 errors, use this page to identify which endpoints are functioning properly.</p>
+        <p>If you're experiencing 403 errors with the Solana RPC, the application should now automatically use the API proxy to resolve these issues.</p>
       </div>
     </div>
   );

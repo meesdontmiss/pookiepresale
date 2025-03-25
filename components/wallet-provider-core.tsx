@@ -10,9 +10,14 @@ import { clusterApiUrl, Commitment } from "@solana/web3.js"
 import "@solana/wallet-adapter-react-ui/styles.css"
 
 export function WalletProviderCore({ children }: { children: React.ReactNode }) {
-  // Use the official Solana endpoint
+  // Use our API proxy to avoid 403 errors
   const endpoint = useMemo(() => {
-    return clusterApiUrl("mainnet-beta");
+    // In production use our API proxy to avoid 403 errors
+    if (typeof window !== 'undefined') {
+      return "/api/rpc/proxy"; // Use our proxy endpoint
+    }
+    // Fallback for SSR
+    return process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta");
   }, []);
 
   // Create list of supported wallets

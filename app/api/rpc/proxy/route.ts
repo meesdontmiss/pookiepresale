@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Define Solana RPC endpoints - use multiple for redundancy
 const RPC_ENDPOINTS = [
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
-  "https://api.mainnet-beta.solana.com",
-  "https://solana-mainnet.rpc.extrnode.com"
+  // Add reliable paid endpoints first
+  "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4", // Helius RPC
+  "https://solana-mainnet.phantom.tech/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ", // Phantom public RPC
+  "https://solana-mainnet.rpc.extrnode.com", // ExtrNode public RPC
+  // Add free endpoints as fallbacks
+  "https://api.mainnet-beta.solana.com", // Official Solana RPC (often rate-limited)
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com", // Configured RPC
 ];
 
 export async function OPTIONS() {

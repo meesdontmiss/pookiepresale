@@ -1,6 +1,3 @@
-// This middleware runs on both client and server
-// It makes sure our Solana connection patch is applied
-
 import { NextRequest, NextResponse } from 'next/server';
 
 // List of routes that should not be redirected
@@ -39,18 +36,6 @@ function isMobileDevice(userAgent: string): boolean {
  */
 function isExcludedPath(path: string): boolean {
   return EXCLUDED_ROUTES.some(route => path.startsWith(route));
-}
-
-// Ensure our patch is applied early in the lifecycle
-try {
-  if (typeof window !== 'undefined') {
-    // Apply the patch on the client side
-    import('./lib/solana-connection-patch')
-      .then(() => console.log('🔧 Solana connection patch applied in middleware (client)'))
-      .catch((error) => console.warn('Failed to apply Solana patch in middleware:', error));
-  }
-} catch (error) {
-  console.warn('Failed to import Solana patch in middleware:', error);
 }
 
 /**
