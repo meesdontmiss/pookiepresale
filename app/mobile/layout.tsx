@@ -54,7 +54,7 @@ export default function MobileLayout({
   return (
     <html lang="en" className="cursor-middle-finger">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         
         {/* Favicons */}
         <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
@@ -76,7 +76,7 @@ export default function MobileLayout({
       <body className="min-h-screen bg-background antialiased cursor-middle-finger">
         <WalletProvider>
           <GlobalSoundProvider />
-          <main className="min-h-screen w-full max-w-full">
+          <main className="min-h-screen w-full max-w-full overflow-hidden">
             {children}
           </main>
         </WalletProvider>

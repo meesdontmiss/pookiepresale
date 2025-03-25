@@ -17,9 +17,9 @@ function StrobeLight() {
   const spotlightRef = useRef<THREE.SpotLight>(null)
   const [color, setColor] = useState<'purple' | 'green'>('purple')
   
-  // More saturated colors
-  const purpleColor = new THREE.Color('#B700FF') // More saturated purple
-  const greenColor = new THREE.Color('#00FF99') // More saturated green
+  // Extremely saturated colors (super bright)
+  const purpleColor = new THREE.Color('#FF00FF').multiplyScalar(6) // Hyper-saturated purple
+  const greenColor = new THREE.Color('#00FF99').multiplyScalar(6) // Hyper-saturated green
   
   // Create strobe effect
   useFrame(({ clock }) => {
@@ -36,7 +36,7 @@ function StrobeLight() {
       }
       
       // Add some intensity variation for dramatic effect
-      spotlightRef.current.intensity = 1.0 + Math.sin(clock.getElapsedTime() * 10) * 0.5
+      spotlightRef.current.intensity = 6.0 + Math.sin(clock.getElapsedTime() * 10) * 2.0
     }
   })
   
@@ -46,22 +46,38 @@ function StrobeLight() {
       <spotLight 
         ref={spotlightRef}
         position={[0, 4, 0]} 
-        intensity={1.2}
-        angle={0.6} // Wider angle for more coverage (in radians)
-        penumbra={0.8} // Soft edges
+        intensity={7.2} // 6x brighter
+        angle={0.7} // Wider angle for more coverage (in radians)
+        penumbra={0.9} // Soft edges
         color={color === 'purple' ? purpleColor : greenColor}
-        distance={15}
-        decay={1.5}
+        distance={20}
+        decay={1.2} // Lower decay for brighter light at distance
         castShadow
       />
       
       {/* Secondary fill light to spread the color around */}
       <pointLight 
         position={[0, 1, 4]} 
-        intensity={0.3}
+        intensity={1.8} // 6x brighter
         color={color === 'purple' ? purpleColor : greenColor}
-        distance={10}
-        decay={2}
+        distance={15}
+        decay={1.5} // Lower decay for brighter light
+      />
+      
+      {/* Additional side lights for more dramatic effect */}
+      <pointLight 
+        position={[-3, 0, 2]} 
+        intensity={1.2}
+        color={color === 'purple' ? purpleColor : greenColor}
+        distance={12}
+        decay={1.5}
+      />
+      <pointLight 
+        position={[3, 0, 2]} 
+        intensity={1.2}
+        color={color === 'purple' ? purpleColor : greenColor}
+        distance={12}
+        decay={1.5}
       />
     </>
   )
@@ -125,8 +141,8 @@ export default function PookieModelMobile() {
         far={1000}
       />
       
-      <ambientLight intensity={0.3} /> {/* Reduced ambient light to make strobe more prominent */}
-      <pointLight position={[10, 10, 10]} intensity={0.4} />
+      <ambientLight intensity={0.15} /> {/* Reduced ambient light to make strobe more dramatic */}
+      <pointLight position={[10, 10, 10]} intensity={0.2} />
       
       {/* Add strobe light */}
       <StrobeLight />

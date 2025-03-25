@@ -115,7 +115,7 @@ export default function MobilePage() {
   }
 
   return (
-    <div className="flex flex-col items-center w-full px-4 py-6 pb-24">
+    <div className="flex flex-col items-center min-h-screen w-full px-4 py-6 overflow-hidden">
       {/* Header */}
       <header className="w-full flex justify-between items-center mb-6 sticky top-0 z-10 bg-gradient-to-b from-black to-transparent py-2">
         <div className="flex items-center">
@@ -177,10 +177,8 @@ export default function MobilePage() {
       </div>
 
       {/* Footer */}
-      <footer className="w-full text-center text-xs text-gray-500 py-4 mt-auto">
-        <div className="py-2">
-          &copy; {new Date().getFullYear()} $POOKIE. All rights reserved.
-        </div>
+      <footer className="mt-auto text-center text-xs text-gray-500 py-4">
+        &copy; {new Date().getFullYear()} $POOKIE. All rights reserved.
       </footer>
     </div>
   )

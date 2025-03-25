@@ -1,12 +1,8 @@
 /* Mobile-specific styles */
 body {
-  /* Allow scrolling without bouncing or pull-to-refresh */
-  overscroll-behavior: none;
+  /* Allow scrolling but prevent pull-to-refresh */
+  overscroll-behavior-y: contain;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  position: relative;
-  height: 100%;
-  padding-bottom: 80px; /* Ensure space at the bottom for the footer */
 }
 
 /* Ensure the page has enough height to accommodate all content */
