@@ -7,7 +7,8 @@ import {
   PublicKey, 
   Transaction, 
   SystemProgram, 
-  LAMPORTS_PER_SOL 
+  LAMPORTS_PER_SOL,
+  clusterApiUrl
 } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +33,14 @@ type PhantomWallet = {
 const CLICK_SOUND_PATH = '/sounds/click.mp3'
 const SUCCESS_SOUND_PATH = '/sounds/success.mp3'
 
+// Fallback RPC endpoints
+const RPC_ENDPOINTS = [
+  process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
+  "https://api.mainnet-beta.solana.com",
+  "https://solana-mainnet.rpc.extrnode.com",
+  clusterApiUrl('mainnet-beta')
+];
+
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
 
@@ -39,6 +48,29 @@ const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcX
 console.log("Environment variables loaded:");
 console.log("- TREASURY_WALLET:", TREASURY_WALLET);
 console.log("- RPC_URL:", process.env.NEXT_PUBLIC_SOLANA_RPC_URL);
+
+// Function to find a working RPC connection
+async function getWorkingConnection(): Promise<Connection> {
+  let lastError: Error | null = null;
+  
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      console.log(`Trying RPC endpoint: ${endpoint}`);
+      const connection = new Connection(endpoint, 'confirmed');
+      
+      // Test the connection by requesting a blockhash
+      const { blockhash } = await connection.getLatestBlockhash('finalized');
+      console.log(`RPC endpoint ${endpoint} is working, got blockhash: ${blockhash.substring(0, 10)}...`);
+      
+      return connection;
+    } catch (error) {
+      console.warn(`RPC endpoint ${endpoint} failed:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  
+  throw lastError || new Error("All RPC endpoints failed");
+}
 
 interface TransactionHandlerProps {
   minAmount?: number
@@ -59,7 +91,7 @@ export default function WalletTransactionHandler({
   buttonLabel = "Contribute",
   tier = 'public'
 }: TransactionHandlerProps) {
-  const { connection } = useConnection()
+  const { connection: defaultConnection } = useConnection()
   const wallet = useWallet()
   const { publicKey, connected, sendTransaction } = wallet
   const { toast } = useToast()
@@ -117,6 +149,16 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true);
       playClickSound();
 
+      // Find a working connection
+      let workingConnection;
+      try {
+        workingConnection = await getWorkingConnection();
+      } catch (error) {
+        console.error("Failed to find a working RPC connection:", error);
+        // Fall back to the default connection
+        workingConnection = defaultConnection;
+      }
+
       // Create transaction
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
       const treasuryPubkey = new PublicKey(TREASURY_WALLET);
@@ -129,15 +171,60 @@ export default function WalletTransactionHandler({
         })
       );
 
-      // Send using wallet adapter (handles blockhash internally)
+      // Get blockhash
+      try {
+        const { blockhash, lastValidBlockHeight } = await workingConnection.getLatestBlockhash('finalized');
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+      } catch (error) {
+        console.error("Failed to get recent blockhash:", error);
+        toast({
+          title: "Network error",
+          description: "Failed to connect to Solana network. Please try again later.",
+          variant: "destructive"
+        });
+        if (onError) onError(error instanceof Error ? error : new Error("Failed to get recent blockhash"));
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Send transaction
       console.log("Sending transaction...");
-      const signature = await sendTransaction(transaction, connection);
-      console.log("Transaction sent:", signature);
+      let signature;
+      try {
+        signature = await sendTransaction(transaction, workingConnection);
+        console.log("Transaction sent:", signature);
+      } catch (error) {
+        console.error("Failed to send transaction:", error);
+        toast({
+          title: "Transaction failed",
+          description: error instanceof Error ? error.message : "Please try again later",
+          variant: "destructive"
+        });
+        if (onError) onError(error instanceof Error ? error : new Error("Failed to send transaction"));
+        setIsSubmitting(false);
+        return;
+      }
 
       // Transaction successful
       setTransactionSignature(signature);
       
       try {
+        // Confirm transaction
+        const confirmation = await workingConnection.confirmTransaction({
+          signature,
+          blockhash: transaction.recentBlockhash!,
+          lastValidBlockHeight: await workingConnection.getBlockHeight(),
+        }, 'confirmed');
+        
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${confirmation.value.err}`);
+        }
+        
+        // Log success
+        console.log("Transaction confirmed:", signature);
+        
+        // Verify transaction in backend
         await verifyTransaction(signature, publicKey.toString(), amount);
       } catch (verifyError) {
         console.warn("Verification warning:", verifyError);
