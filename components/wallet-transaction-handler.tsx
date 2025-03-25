@@ -34,17 +34,10 @@ const SUCCESS_SOUND_PATH = '/sounds/success.mp3'
 
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4FdhCrDhcBcXyqLJGANnYbRiJyp1ApbQvXA1PYJXmdCG"
-// Use multiple fallback RPC endpoints to avoid 403 errors
-const SOLANA_RPC_ENDPOINTS = [
-  "https://rpc.helius.xyz/?api-key=28cda6d9-5527-4c12-a0b3-cf2c6e54c1a4", // Helius RPC (more reliable)
-  "https://solana-mainnet.phantom.app/YBPpkkN4g91xDiAnTE9r0RcMkjg0sKUIWvAfoFVJ",
-  "https://api.mainnet-beta.solana.com"
-];
 
 // Log environment variables at runtime
 console.log("Environment variables loaded:");
 console.log("- TREASURY_WALLET:", TREASURY_WALLET);
-console.log("- SOLANA_RPC_ENDPOINTS:", SOLANA_RPC_ENDPOINTS);
 
 interface TransactionHandlerProps {
   minAmount?: number
@@ -55,18 +48,6 @@ interface TransactionHandlerProps {
   buttonLabel?: string
   tier?: string
 }
-
-// Utility function to get the best RPC connection
-const getBestConnection = async (connection: Connection, fallbackUrls: string[]): Promise<Connection> => {
-  // Use Alchemy's demo endpoint which is known to work in browsers
-  const WORKING_RPC = "https://solana-mainnet.g.alchemy.com/v2/demo";
-  
-  console.log("Creating connection with Alchemy demo endpoint");
-  return new Connection(WORKING_RPC, {
-    commitment: "confirmed",
-    confirmTransactionInitialTimeout: 60000
-  });
-};
 
 export default function WalletTransactionHandler({
   minAmount = 0.05,
@@ -85,14 +66,6 @@ export default function WalletTransactionHandler({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
   const [displayedAddress, setDisplayedAddress] = useState<string>("")
-  
-  // Log wallet state on mount and changes
-  useEffect(() => {
-    console.log("Wallet state changed:");
-    console.log("- Connected:", connected);
-    console.log("- Wallet:", (wallet as any)?.adapter?.name);
-    console.log("- PublicKey:", publicKey?.toString());
-  }, [connected, wallet, publicKey]);
   
   // Validate amount
   const isValidAmount = amount >= minAmount && amount <= maxAmount
@@ -143,9 +116,6 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true);
       playClickSound();
 
-      // Use the connection from useConnection hook
-      console.log("Starting transaction process with wallet adapter connection");
-
       // Create transaction
       const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
       const treasuryPubkey = new PublicKey(TREASURY_WALLET);
@@ -158,8 +128,8 @@ export default function WalletTransactionHandler({
         })
       );
 
-      // Use wallet adapter's sendTransaction
-      console.log("Sending transaction via wallet adapter");
+      // Send using wallet adapter (handles blockhash internally)
+      console.log("Sending transaction...");
       const signature = await sendTransaction(transaction, connection);
       console.log("Transaction sent:", signature);
 
