@@ -8,8 +8,7 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { TwitterIcon, MessageCircleIcon } from 'lucide-react'
 import PreSaleForm from '@/components/presale/presale-form'
 import PresaleStats from '@/components/presale/presale-stats'
-import { ToastContainer, toast } from 'react-toastify'
-import 'react-toastify/dist/ReactToastify.css'
+import { useToast } from "@/components/ui/use-toast" 
 import { playSound } from "@/hooks/use-audio"
 
 // Dynamically import the 3D model component with no SSR
@@ -28,6 +27,7 @@ interface Notification {
 export default function MobilePage() {
   const [mounted, setMounted] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const { toast } = useToast()
 
   useEffect(() => {
     setMounted(true)
@@ -102,39 +102,20 @@ export default function MobilePage() {
   
   // Function to show toast notification for contributions
   const showContributionToast = (wallet: string, amount: number) => {
-    toast.success(
-      <div className="flex flex-col">
-        <span className="font-bold">{wallet}</span>
-        <span>just contributed {amount} SOL</span>
-      </div>,
-      {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-      }
-    )
+    toast({
+      title: "New Contribution",
+      description: (
+        <div className="flex flex-col">
+          <span className="font-bold">{wallet}</span>
+          <span>just contributed {amount} SOL</span>
+        </div>
+      ),
+      duration: 5000,
+    })
   }
 
   return (
     <div className="flex flex-col items-center min-h-screen w-full px-4 py-6 overflow-hidden">
-      {/* Toast Container for Notifications */}
-      <ToastContainer
-        position="top-right"
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="dark"
-      />
-      
       {/* Header */}
       <header className="w-full flex justify-between items-center mb-6">
         <div className="flex items-center">

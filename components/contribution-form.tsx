@@ -120,12 +120,15 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
       const data = await response.json();
       if (data.success) {
         // Only dispatch if we have valid data
-        if (treasuryBalance > 0 || Number(data.stats.total_raised || 0) > 0) {
+        const apiRaisedAmount = Number(data.stats.total_raised || 0);
+        const validRaisedAmount = treasuryBalance !== null ? treasuryBalance : apiRaisedAmount;
+        
+        if (validRaisedAmount > 0) {
           // Dispatch a custom event with the latest stats to update progress bar
           const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
             detail: {
               // Use treasury balance if available, otherwise use API data
-              raised: treasuryBalance || Number(data.stats.total_raised || 0),
+              raised: validRaisedAmount,
               cap: Number(data.stats.cap || 75),
               contributors: Number(data.stats.contributors || 0)
             }
@@ -133,7 +136,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           window.dispatchEvent(event);
           
           console.log('Stats refreshed after contribution:', 
-            treasuryBalance ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : data.stats);
+            treasuryBalance !== null ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : `API data: ${apiRaisedAmount} SOL`);
         }
       }
       
