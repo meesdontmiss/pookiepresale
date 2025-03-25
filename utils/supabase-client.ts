@@ -5,6 +5,12 @@ import { PublicKey } from '@solana/web3.js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+// Enhanced logging for Supabase connection
+console.log("Initializing Supabase client with:");
+console.log(`- URL: ${supabaseUrl ? (supabaseUrl.substring(0, 8) + '...') : 'undefined'}`);
+console.log(`- Key present: ${supabaseKey ? 'Yes' : 'No'}`);
+console.log(`- Key length: ${supabaseKey ? supabaseKey.length : 0}`);
+
 // Validate URL format
 if (!supabaseUrl || !supabaseUrl.startsWith('https://')) {
   console.error('Invalid Supabase URL. Make sure NEXT_PUBLIC_SUPABASE_URL is set correctly.');
@@ -22,6 +28,21 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     autoRefreshToken: true
   }
 });
+
+// Test the connection on initialization
+(async function testConnection() {
+  try {
+    const { data, error } = await supabase.from('contributions').select('created_at').limit(1);
+    
+    if (error) {
+      console.error('Supabase connection test failed:', error);
+    } else {
+      console.log('Supabase connection test successful');
+    }
+  } catch (e) {
+    console.error('Supabase connection test exception:', e);
+  }
+})();
 
 // Create the database schema - only for initialization purposes
 export const createSchema = async () => {
