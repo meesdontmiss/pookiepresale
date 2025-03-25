@@ -21,7 +21,7 @@ function isMobileDevice(userAgent: string): boolean {
 }
 
 /**
- * GET handler for the mobile route
+ * GET handler for the mobile detection API
  * Ensures mobile users stay on mobile and desktop users redirect to desktop
  */
 export async function GET(request: NextRequest) {
@@ -32,6 +32,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
   
-  // Let the mobile page component handle the request for mobile users
-  return NextResponse.next()
+  // For mobile users, redirect to mobile version
+  return NextResponse.redirect(new URL('/mobile', request.url))
 } 
