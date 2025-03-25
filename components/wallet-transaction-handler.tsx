@@ -16,15 +16,12 @@ import { playClickSound, playSound } from '@/hooks/use-audio'
 import { motion } from "framer-motion"
 
 // Define the Phantom wallet interface for window.solana
-declare global {
-  interface Window {
-    solana?: {
-      connect: () => Promise<void>;
-      signAndSendTransaction: (transaction: Transaction) => Promise<string>;
-      isPhantom?: boolean;
-      publicKey?: PublicKey;
-    }
-  }
+// Only declare in module scope (not global) to avoid conflicts with other definitions
+type PhantomWallet = {
+  connect: () => Promise<void>;
+  signAndSendTransaction: (transaction: Transaction) => Promise<string>;
+  isPhantom?: boolean;
+  publicKey?: PublicKey;
 }
 
 // Sound paths
@@ -33,7 +30,8 @@ const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 
 // Destination wallet for the presale
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
-const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com"
+// Use a public RPC endpoint that doesn't require authentication
+const SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com" // Fallback to public RPC
 
 // Log environment variables at runtime
 console.log("Environment variables loaded:");
@@ -218,11 +216,12 @@ export default function WalletTransactionHandler({
             console.error("Wallet adapter doesn't support sendTransaction");
             
             // Last resort: For Phantom wallet, try using window.solana if available
-            if (typeof window !== 'undefined' && window.solana) {
+            if (typeof window !== 'undefined' && 'solana' in window) {
               try {
                 console.log("Attempting to use window.solana (Phantom wallet)...");
-                await window.solana.connect();
-                signature = await window.solana.signAndSendTransaction(transaction);
+                const phantomWallet = window.solana as PhantomWallet;
+                await phantomWallet.connect();
+                signature = await phantomWallet.signAndSendTransaction(transaction);
               } catch (phantomError) {
                 console.error("Error with Phantom direct method:", phantomError);
                 throw new Error("Failed to send transaction through your wallet. Please try refreshing the page or using a different wallet.");
