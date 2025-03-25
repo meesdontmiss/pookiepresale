@@ -34,15 +34,6 @@ const PUBLIC_CONTRIBUTION_AMOUNT = 0.25;
 // Special milestone for celebration
 const CELEBRATION_MILESTONE = 2.0;
 
-// Vesting options based on lock-up period
-const VESTING_OPTIONS = [
-  { days: 0, bonus: 0 },    // 0% bonus for no lock-up
-  { days: 1, bonus: 10 },   // 10% bonus for 1-day lock-up
-  { days: 3, bonus: 20 },   // 20% bonus for 3-day lock-up 
-  { days: 5, bonus: 30 },   // 30% bonus for 5-day lock-up
-  { days: 7, bonus: 40 },   // 40% bonus for 7-day lock-up
-];
-
 interface ContributionFormProps {
   maxContribution: number
   tier: "core" | "public"
@@ -55,47 +46,8 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const [address, setAddress] = useState<string>("")
   const [isContributing, setIsContributing] = useState(false)
   const [selectedOption, setSelectedOption] = useState<number>(tier === "public" ? 0.25 : 0.5)
-  const [selectedVesting, setSelectedVesting] = useState<number>(0) // Index of selected vesting option
   const [showCelebration, setShowCelebration] = useState(false)
   const { toast: useToastToast } = useToast()
-
-  // Fetch vesting options from the API
-  const [apiVestingOptions, setApiVestingOptions] = useState<typeof VESTING_OPTIONS>([]);
-  
-  useEffect(() => {
-    const fetchVestingOptions = async () => {
-      try {
-        const response = await fetch('/api/vesting/options');
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch vesting options');
-        }
-        
-        const result = await response.json();
-        
-        if (result.success && result.data && Array.isArray(result.data)) {
-          // Map API response to the format expected by the component
-          const formattedOptions = result.data.map((option: any) => ({
-            days: option.days,
-            bonus: option.bonus_percentage
-          }));
-          
-          // Only update if we got valid data
-          if (formattedOptions.length > 0) {
-            setApiVestingOptions(formattedOptions);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching vesting options:', error);
-        // Fall back to hardcoded options if API fails
-      }
-    };
-    
-    fetchVestingOptions();
-  }, []);
-  
-  // Use API options if available, otherwise fall back to hardcoded options
-  const activeVestingOptions = apiVestingOptions.length > 0 ? apiVestingOptions : VESTING_OPTIONS;
 
   // Get available options based on tier
   const availableOptions = tier === "public" 
@@ -111,11 +63,6 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const setPresetAmount = (value: number) => {
     setAmount(value.toString())
     setSelectedOption(value)
-    // Global handler will play click sound
-  }
-
-  const setVestingOption = (index: number) => {
-    setSelectedVesting(index)
     // Global handler will play click sound
   }
 
@@ -211,9 +158,6 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           description: "Verifying your contribution...",
         });
         
-        // Get the selected vesting option
-        const vestingOption = activeVestingOptions[selectedVesting];
-        
         // Verify the transaction with our API
         const verifyResponse = await fetch('/api/transactions/verify', {
           method: 'POST',
@@ -234,36 +178,12 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           throw new Error(verifyResult.error || 'Failed to verify transaction');
         }
         
-        // Success! Transaction verified
-        const lockupPeriod = vestingOption.days === 0 ? "no lock-up" : `${vestingOption.days}-day lock-up`;
-        
-        // Call the vesting API to set up vesting schedule if needed
-        if (vestingOption.days > 0) {
-          const vestingResponse = await fetch('/api/vesting/setup', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              walletAddress,
-              days: vestingOption.days,
-              contributionId: verifyResult.transaction?.id,
-              bonusPercentage: vestingOption.bonus
-            }),
-          });
-          
-          if (!vestingResponse.ok) {
-            console.warn('Vesting setup warning:', await vestingResponse.json());
-            // Continue even if vesting setup had issues, we'll fix it later
-          }
-        }
-        
-        // Calculate token amounts
-        const { baseTokens, bonusTokens, totalTokens } = calculateContributionTokens(numericAmount, vestingOption.bonus);
+        // Calculate token amounts - no bonus now that we removed vesting
+        const { baseTokens, totalTokens } = calculateTokens(numericAmount, 0);
         
         useToastToast({
           title: "Contribution successful!",
-          description: `You contributed ${numericAmount} SOL and will receive ${formatTokenAmount(totalTokens)} POOKIE tokens with a ${vestingOption.bonus}% bonus (${lockupPeriod}).`,
+          description: `You contributed ${numericAmount} SOL and will receive ${formatTokenAmount(totalTokens)} POOKIE tokens.`,
         });
         
         // Check if the user hit the celebration milestone
@@ -301,19 +221,6 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
     setShowCelebration(false);
   };
 
-  // Get the current vesting option
-  const currentVestingOption = activeVestingOptions[selectedVesting] || VESTING_OPTIONS[selectedVesting];
-
-  // Calculate the token amount based on contribution
-  const calculateContributionTokens = (contributionAmount: number, bonusPercentage: number) => {
-    const { baseTokens, bonusTokens, totalTokens } = calculateTokens(contributionAmount, bonusPercentage)
-    return {
-      baseTokens,
-      bonusTokens,
-      totalTokens
-    }
-  }
-
   return (
     <>
       {showCelebration && (
@@ -343,7 +250,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
             <div className="p-4">
               <h2 className="text-7xl font-bold text-center mb-4">🅿️</h2>
               <p className="text-center text-sm text-muted-foreground mb-4">
-                You've contributed 2 SOL to the Pookie presale with a {currentVestingOption.bonus}% vesting bonus!
+                You've contributed 2 SOL to the Pookie presale!
               </p>
               
               <div className="relative w-full aspect-video">
@@ -397,47 +304,13 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
             })}
           </div>
           
-          <div className="border rounded-md p-2 space-y-2">
-            <h4 className="text-xs font-medium">Vesting Period (Optional)</h4>
-            <p className="text-xs text-muted-foreground">Lock up your tokens for bonus rewards</p>
-            
-            <div className="grid grid-cols-5 gap-1 mt-1">
-              {activeVestingOptions.map((option, index) => {
-                const isSelected = selectedVesting === index;
-                return (
-                  <Button
-                    key={index}
-                    type="button"
-                    variant="outline"
-                    className={`h-auto py-2 px-1 text-xs ${isSelected ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => setVestingOption(index)}
-                  >
-                    <div className="flex flex-col">
-                      {option.days === 0 ? (
-                        <span>No Lock</span>
-                      ) : (
-                        <>
-                          <span>{option.days}d</span>
-                          <span className="text-[10px]">+{option.bonus}%</span>
-                        </>
-                      )}
-                    </div>
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-          
           <div className="flex items-start gap-2 rounded-md bg-muted p-2 text-xs">
             <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium">Vesting Information</p>
+              <p className="font-medium">Token Information</p>
               <p className="mt-1 text-muted-foreground">
-                {currentVestingOption.days === 0 ? (
-                  "You've selected no lock-up period. Your tokens will be fully available at launch."
-                ) : (
-                  <>You've selected a {currentVestingOption.days}-day lock-up period for a {currentVestingOption.bonus}% bonus on your token allocation.</>
-                )}
+                Your POOKIE tokens will be available at token launch. For each SOL you contribute, 
+                you'll receive 1,000,000 POOKIE tokens.
               </p>
             </div>
           </div>

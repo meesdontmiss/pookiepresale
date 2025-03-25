@@ -14,7 +14,6 @@ export default function PreSaleForm() {
   const [selectedAmount, setSelectedAmount] = useState<number>(0.25)
   const [isPrivateSale, setIsPrivateSale] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [vestingDays, setVestingDays] = useState(0)
 
   const handleContribute = async () => {
     if (!publicKey || !connected) {
@@ -88,43 +87,15 @@ export default function PreSaleForm() {
       if (!verifyResponse.ok) {
         throw new Error('Failed to verify transaction')
       }
-
-      // Setup vesting if needed
-      if (vestingDays > 0) {
-        const vestingResponse = await fetch('/api/vesting/setup', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            walletAddress: publicKey.toString(),
-            days: vestingDays,
-            contributionId: (await verifyResponse.json()).transaction?.id,
-            bonusPercentage: getVestingBonus(vestingDays)
-          }),
-        })
-      }
       
       alert("Thank you for your contribution!")
       setSelectedAmount(0.25)
-      setVestingDays(0)
       
     } catch (error) {
       console.error("Contribution error:", error)
       alert("Transaction failed. Please try again.")
     } finally {
       setIsSubmitting(false)
-    }
-  }
-  
-  // Helper function to calculate vesting bonus
-  const getVestingBonus = (days: number): number => {
-    switch (days) {
-      case 1: return 10
-      case 3: return 20
-      case 5: return 30
-      case 7: return 40
-      default: return 0
     }
   }
 
@@ -179,33 +150,6 @@ export default function PreSaleForm() {
                     {PUBLIC_CONTRIBUTION_AMOUNT} SOL
                   </Button>
                 )}
-              </div>
-            </div>
-            
-            <div className="mb-4">
-              <span className="text-sm font-medium block mb-2">Vesting Bonus:</span>
-              <div className="grid grid-cols-3 gap-2">
-                <Button
-                  variant={vestingDays === 0 ? "default" : "outline"}
-                  className={`text-xs ${vestingDays === 0 ? 'bg-green-500' : 'bg-zinc-800'}`}
-                  onClick={() => setVestingDays(0)}
-                >
-                  No lock
-                </Button>
-                <Button
-                  variant={vestingDays === 3 ? "default" : "outline"}
-                  className={`text-xs ${vestingDays === 3 ? 'bg-green-500' : 'bg-zinc-800'}`}
-                  onClick={() => setVestingDays(3)}
-                >
-                  3 days (+20%)
-                </Button>
-                <Button
-                  variant={vestingDays === 7 ? "default" : "outline"}
-                  className={`text-xs ${vestingDays === 7 ? 'bg-green-500' : 'bg-zinc-800'}`}
-                  onClick={() => setVestingDays(7)}
-                >
-                  7 days (+40%)
-                </Button>
               </div>
             </div>
           </div>
