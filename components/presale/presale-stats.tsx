@@ -234,7 +234,7 @@ export default function PresaleStats() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <div className="text-center p-3 bg-gray-800/50 rounded-lg">
           <p className="text-xs text-gray-400">Raised</p>
           <p className="font-bold text-sm">{stats.total_raised.toFixed(2)} SOL</p>
@@ -242,10 +242,6 @@ export default function PresaleStats() {
         <div className="text-center p-3 bg-gray-800/50 rounded-lg">
           <p className="text-xs text-gray-400">Target</p>
           <p className="font-bold text-sm">{stats.cap} SOL</p>
-        </div>
-        <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-          <p className="text-xs text-gray-400">Contributors</p>
-          <p className="font-bold text-sm">{stats.contributors}</p>
         </div>
       </div>
     </div>
