@@ -15,6 +15,18 @@ import { toast } from '@/components/ui/use-toast'
 import { playClickSound, playSound } from '@/hooks/use-audio'
 import { motion } from "framer-motion"
 
+// Define the Phantom wallet interface for window.solana
+declare global {
+  interface Window {
+    solana?: {
+      connect: () => Promise<void>;
+      signAndSendTransaction: (transaction: Transaction) => Promise<string>;
+      isPhantom?: boolean;
+      publicKey?: PublicKey;
+    }
+  }
+}
+
 // Sound paths
 const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
 const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
@@ -192,23 +204,32 @@ export default function WalletTransactionHandler({
         
         // Try primary send method
         try {
-          if (wallet.adapter.sendTransaction) {
-            console.log("Using wallet adapter sendTransaction...");
+          // Use standard sendTransaction from useWallet directly - simplest method
+          console.log("Using standard sendTransaction hook...");
+          signature = await sendTransaction(transaction, connection);
+        } catch (sendError) {
+          console.error("Error with sendTransaction hook, trying wallet adapter directly:", sendError);
+          
+          // Try wallet adapter's sendTransaction method
+          if (wallet?.adapter?.sendTransaction) {
+            console.log("Using wallet.adapter.sendTransaction directly...");
             signature = await wallet.adapter.sendTransaction(transaction, connection);
           } else {
-            throw new Error("Wallet doesn't support sendTransaction");
-          }
-        } catch (sendError) {
-          console.error("Error with sendTransaction, trying manual sign fallback:", sendError);
-          
-          // Fallback to manual sign + send
-          if (wallet.adapter.signTransaction) {
-            console.log("Using manual sign + send fallback...");
-            const signedTransaction = await wallet.adapter.signTransaction(transaction);
-            signature = await connection.sendRawTransaction(signedTransaction.serialize());
-          } else {
-            console.error("Wallet supports neither sendTransaction nor signTransaction");
-            throw new Error("Your wallet doesn't support the required transaction methods");
+            console.error("Wallet adapter doesn't support sendTransaction");
+            
+            // Last resort: For Phantom wallet, try using window.solana if available
+            if (typeof window !== 'undefined' && window.solana) {
+              try {
+                console.log("Attempting to use window.solana (Phantom wallet)...");
+                await window.solana.connect();
+                signature = await window.solana.signAndSendTransaction(transaction);
+              } catch (phantomError) {
+                console.error("Error with Phantom direct method:", phantomError);
+                throw new Error("Failed to send transaction through your wallet. Please try refreshing the page or using a different wallet.");
+              }
+            } else {
+              throw new Error("Your wallet doesn't support the required transaction methods");
+            }
           }
         }
         
