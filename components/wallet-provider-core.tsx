@@ -1,26 +1,18 @@
 "use client"
 
-import { useMemo, useEffect } from "react"
+import { useMemo } from "react"
 import { ConnectionProvider, WalletProvider as SolanaWalletProvider } from "@solana/wallet-adapter-react"
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui"
 import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adapter-wallets"
-import { createReliableConnection } from "@/lib/solana-connection-patch"
+import { clusterApiUrl, Commitment } from "@solana/web3.js"
 
 // Import the wallet adapter styles
 import "@solana/wallet-adapter-react-ui/styles.css"
 
 export function WalletProviderCore({ children }: { children: React.ReactNode }) {
-  // Apply our connection patch when the component loads
-  useEffect(() => {
-    // Import the patch module to ensure it runs
-    require('@/lib/solana-connection-patch');
-    console.log("🔧 Solana connection patch applied");
-  }, []);
-
-  // Use our reliable connection creator
+  // Use the official Solana endpoint
   const endpoint = useMemo(() => {
-    console.log("Creating reliable Solana connection");
-    return createReliableConnection();
+    return clusterApiUrl("mainnet-beta");
   }, []);
 
   // Create list of supported wallets
@@ -30,7 +22,7 @@ export function WalletProviderCore({ children }: { children: React.ReactNode }) 
   ], []);
 
   return (
-    <ConnectionProvider connection={endpoint}>
+    <ConnectionProvider endpoint={endpoint}>
       <SolanaWalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           {children}

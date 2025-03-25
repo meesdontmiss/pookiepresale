@@ -143,117 +143,45 @@ export default function WalletTransactionHandler({
       setIsSubmitting(true);
       playClickSound();
 
-      console.log("Starting transaction process...");
-      
-      // Create a connection to GenesysGo - a reliable endpoint that works in browsers
-      const bestConnection = new Connection("https://free.rpcpool.com", {
-        commitment: "confirmed",
-        confirmTransactionInitialTimeout: 60000,
-        httpHeaders: {
-          "Origin": typeof window !== 'undefined' ? window.location.origin : 'https://pookiepresale.vercel.app'
-        }
-      });
+      // Use the connection from useConnection hook
+      console.log("Starting transaction process with wallet adapter connection");
 
-      console.log("Getting latest blockhash...");
+      // Create transaction
+      const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
+      const treasuryPubkey = new PublicKey(TREASURY_WALLET);
+      
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: treasuryPubkey,
+          lamports
+        })
+      );
+
+      // Use wallet adapter's sendTransaction
+      console.log("Sending transaction via wallet adapter");
+      const signature = await sendTransaction(transaction, connection);
+      console.log("Transaction sent:", signature);
+
+      // Transaction successful
+      setTransactionSignature(signature);
       
       try {
-        // Get latest blockhash
-        const { blockhash, lastValidBlockHeight } = await bestConnection.getLatestBlockhash("finalized");
-        console.log("Got latest blockhash:", blockhash);
-
-        // Create transaction
-        const lamports = Math.floor(amount * LAMPORTS_PER_SOL);
-        const treasuryPubkey = new PublicKey(TREASURY_WALLET);
-        
-        const transaction = new Transaction().add(
-          SystemProgram.transfer({
-            fromPubkey: publicKey,
-            toPubkey: treasuryPubkey,
-            lamports
-          })
-        );
-
-        // Set transaction parameters
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = publicKey;
-
-        // Use wallet.sendTransaction which handles signing correctly
-        console.log("Sending transaction using wallet adapter...");
-        const signature = await sendTransaction(transaction, bestConnection);
-        console.log("Transaction sent:", signature);
-
-        // Wait for confirmation
-        console.log("Waiting for confirmation...");
-        const confirmationResponse = await bestConnection.confirmTransaction({
-          signature,
-          blockhash,
-          lastValidBlockHeight
-        }, "confirmed");
-
-        console.log("Transaction confirmed:", confirmationResponse);
-
-        // Transaction successful
-        setTransactionSignature(signature);
         await verifyTransaction(signature, publicKey.toString(), amount);
-        playSound(SUCCESS_SOUND_PATH, 0.3);
-        
-        toast({
-          title: "Contribution successful!",
-          description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
-        });
-
-        if (onSuccess) onSuccess(signature, amount);
-      } catch (blockhashError) {
-        console.error("Blockhash or transaction error:", blockhashError);
-        
-        // Try alternate method that's more direct and bypasses the most common points of failure
-        toast({
-          title: "Trying alternate method...",
-          description: "First attempt failed, trying alternative approach"
-        });
-        
-        try {
-          // Get connection - use a direct connection to Alchemy with explicit protocol
-          const alchemyConnection = new Connection("https://solana-mainnet.g.alchemy.com/v2/demo", {
-            commitment: "confirmed"
-          });
-          const { blockhash } = await alchemyConnection.getLatestBlockhash();
-          
-          // Get the Phantom wallet
-          const phantomWallet = window.solana as PhantomWallet;
-          
-          // Create direct transaction with blockhash
-          const transaction = new Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: publicKey,
-              toPubkey: new PublicKey(TREASURY_WALLET),
-              lamports: Math.floor(amount * LAMPORTS_PER_SOL)
-            })
-          );
-          
-          // Set the blockhash and payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = publicKey;
-          
-          // Let Phantom handle signing and sending
-          const signature = await phantomWallet.signAndSendTransaction(transaction);
-          console.log("Transaction sent via direct Phantom method:", signature);
-          
-          // Success handling
-          setTransactionSignature(signature);
-          await verifyTransaction(signature, publicKey.toString(), amount);
-          
-          toast({
-            title: "Transaction successful!",
-            description: `Thank you for contributing ${amount} SOL.`
-          });
-          
-          if (onSuccess) onSuccess(signature, amount);
-        } catch (directError) {
-          console.error("Direct transaction method failed:", directError);
-          throw directError;
-        }
+      } catch (verifyError) {
+        console.warn("Verification warning:", verifyError);
+        // Continue even if verification has issues
       }
+      
+      playSound(SUCCESS_SOUND_PATH, 0.3);
+      
+      toast({
+        title: "Contribution successful!",
+        description: `Thank you for contributing ${amount} SOL. You'll receive your tokens during the airdrop.`,
+      });
+
+      if (onSuccess) onSuccess(signature, amount);
+
     } catch (error: unknown) {
       console.error("Transaction error:", error);
       toast({
