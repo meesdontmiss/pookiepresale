@@ -74,7 +74,7 @@ export default function PasswordGate({ onVerified }: PasswordGateProps) {
       setTimeout(() => {
         // The correct password would be stored securely on the server
         // This is just for demonstration
-        resolve({ success: password === "pookiemafia" })
+        resolve({ success: password === "damnpookie!" })
       }, 1000)
     })
   }
