@@ -19,7 +19,7 @@ const FireworksEffect = dynamic(() => import('@/components/fireworks-effect'), {
 // Success sound path
 const SUCCESS_SOUND_PATH = '/sounds/notification.wav'
 
-// Define constant for custom event
+// Define constant for custom event - keep this for reference
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
 
@@ -32,67 +32,6 @@ const formatWalletAddress = (address: string): string => {
   if (!address) return ''
   return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`
 }
-
-// Function to fetch final presale stats or treasury balance
-const fetchFinalState = async () => {
-  let finalRaised = 0;
-  let finalCap = 0;
-  let finalContributors = null;
-
-  try {
-    // First, try fetching the official stats from the API
-    const statsResponse = await fetch('/api/presale/stats');
-    if (statsResponse.ok) {
-      const statsData = await statsResponse.json();
-      if (statsData.success && statsData.stats) {
-        finalRaised = Number(statsData.stats.total_raised || 0);
-        // Since presale is paused, the cap IS the final raised amount
-        finalCap = finalRaised;
-        finalContributors = Number(statsData.stats.contributors || 0);
-        console.log(`Fetched final stats from API: Raised ${finalRaised}, Cap ${finalCap}`);
-      }
-    }
-    // Throw an error if stats fetch failed or returned invalid data, to trigger fallback
-    if (finalCap <= 0 && finalRaised <= 0) {
-        throw new Error("Stats API did not return valid final amount.")
-    }
-
-  } catch (statsError) {
-    console.warn("Failed to fetch final stats from API, falling back to treasury balance:", statsError);
-    // Fallback: Try fetching the balance directly from the treasury wallet
-    try {
-       if (typeof window !== 'undefined') {
-            const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
-            const baseUrl = window.location.origin;
-            const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-            const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
-            finalRaised = treasuryBalance / LAMPORTS_PER_SOL;
-            // Cap is still the final raised amount
-            finalCap = finalRaised;
-            console.log(`Fetched final state from treasury balance: Raised ${finalRaised}, Cap ${finalCap}`);
-       }
-    } catch (balanceError) {
-        console.error("Fallback failed: Error fetching treasury balance:", balanceError);
-        // If both methods fail, leave values as 0
-        finalRaised = 0;
-        finalCap = 0;
-    }
-  }
-
-  // Dispatch the event with the determined final state
-  // Ensure cap always equals raised for paused state
-  const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
-    detail: {
-      raised: finalRaised,
-      cap: finalCap,
-      contributors: finalContributors
-    }
-  });
-  window.dispatchEvent(event);
-  console.log(`Dispatched final state: Raised ${finalRaised}, Cap ${finalCap}`);
-
-  return { raised: finalRaised, cap: finalCap, contributors: finalContributors };
-};
 
 // This is a mock function - in production, this would call a server action
 const verifyPassword = async (password: string) => {
@@ -116,14 +55,8 @@ export default function PreSaleForm() {
   const [password, setPassword] = useState("")
   const [isVerifying, setIsVerifying] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
-  const [isPaused, setIsPaused] = useState(true); // Keep this state, hardcoded to true
+  const [isPaused] = useState(true) // Always paused, no state setter
   const { toast } = useToast()
-
-  // Simplified useEffect: Fetch final state on mount
-  useEffect(() => {
-    fetchFinalState();
-    // No interval needed as the state is final
-  }, []); // Empty dependency array, runs only once on mount
 
   const handleVerifyPassword = async () => {
     // Verification doesn't make sense if paused, but keep the disabled logic
@@ -172,151 +105,12 @@ export default function PreSaleForm() {
   };
 
   const handleContribute = async () => {
-    // Contribution button is already disabled by isPaused, but double-check
-    if (isPaused) {
-      toast({
-        title: "Presale Concluded",
-        description: "The presale has finished.",
-        variant: "default"
-      })
-      return;
-    }
-    if (!publicKey || !connected) {
-      toast({
-        title: "Wallet Not Connected",
-        description: "Please connect your wallet first",
-        variant: "destructive"
-      })
-      return
-    }
-
-    setIsSubmitting(true)
-    try {
-      // Get treasury wallet address from environment variables
-      const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET
-      
-      if (!treasuryWallet) {
-        throw new Error('Treasury wallet not configured')
-      }
-      
-      // Display preparing transaction toast
-      toast({
-        title: "Preparing transaction",
-        description: `Please approve the transaction for ${selectedAmount} SOL in your wallet`,
-      })
-      
-      // Use @solana/web3.js to create and send the transaction
-      const { Connection, SystemProgram, Transaction, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
-      
-      // Create connection to Solana using our API proxy to avoid 403 errors
-      let connection;
-      
-      // Use our proxy URL in the browser, but fall back to the env var for server-side
-      if (typeof window !== 'undefined') {
-        const baseUrl = window.location.origin;
-        connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-      } else {
-        // Server-side connection (should not be used from client components, but adding for completeness)
-        connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
-      }
-      
-      // Create a transaction to send SOL to treasury
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(treasuryWallet),
-          lamports: selectedAmount * LAMPORTS_PER_SOL, // Convert SOL to lamports
-        })
-      )
-      
-      // Get recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash()
-      transaction.recentBlockhash = blockhash
-      transaction.feePayer = publicKey
-      
-      // Send transaction
-      if (!signTransaction) {
-        throw new Error('Wallet does not support signTransaction')
-      }
-      
-      const signedTransaction = await signTransaction(transaction)
-      const signature = await connection.sendRawTransaction(signedTransaction.serialize())
-      
-      // Wait for confirmation
-      await connection.confirmTransaction(signature, 'confirmed')
-      
-      // Play success sound
-      playSound('/sounds/notification.wav')
-      
-      toast({
-        title: "Transaction sent!",
-        description: "Verifying your contribution...",
-      })
-      
-      // Verify with our API
-      const verifyResponse = await fetch('/api/transactions/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          signature,
-          walletAddress: publicKey.toString(),
-          amount: selectedAmount,
-          tier: isPrivateSale ? "core" : "public",
-        }),
-      })
-      
-      if (!verifyResponse.ok) {
-        throw new Error('Failed to verify transaction')
-      }
-      
-      // Manually trigger a live notification for immediate feedback
-      const notificationEvent = new CustomEvent('pookie-new-contribution', { 
-        detail: {
-          wallet: formatWalletAddress(publicKey.toString()),
-          amount: selectedAmount,
-          timestamp: Date.now()
-        }
-      });
-      window.dispatchEvent(notificationEvent);
-      
-      // Show success notification with transaction link
-      toast({
-        title: "Contribution successful!",
-        description: (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-1 text-green-500">
-              <Check size={16} className="flex-shrink-0" />
-              <span>Transaction confirmed on Solana blockchain</span>
-            </div>
-            <p>You contributed {selectedAmount} SOL to the POOKIE presale.</p>
-            <a 
-              href={`https://solscan.io/tx/${signature}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-1"
-            >
-              <ExternalLink size={12} />
-              <span>View transaction on Solscan</span>
-            </a>
-          </div>
-        ),
-        duration: 8000,
-      })
-      
-      setSelectedAmount(0.25)
-      
-    } catch (error) {
-      console.error("Contribution error:", error)
-      toast({
-        title: "Transaction failed",
-        description: error instanceof Error ? error.message : "Failed to complete transaction",
-        variant: "destructive"
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
+    toast({
+      title: "Presale Concluded",
+      description: "The presale has finished.",
+      variant: "default"
+    })
+    return
   }
 
   return (
@@ -441,15 +235,15 @@ export default function PreSaleForm() {
           </div>
           
           <Button
-            className="w-full bg-green-500 hover:bg-green-600 text-white"
-            disabled={isPaused || isSubmitting || !selectedAmount} // Ensure disabled when paused
+            className="w-full bg-zinc-600 hover:bg-zinc-600 text-white cursor-not-allowed"
+            disabled={true}
             onClick={handleContribute}
           >
-            {isPaused ? "Presale Concluded" : isSubmitting ? "Processing..." : `Contribute ${selectedAmount} SOL`}
+            Presale Concluded
           </Button>
           
           <p className="text-xs text-center text-gray-400 mt-2">
-            Your tokens will be distributed at TGE
+            The presale is now closed. Thank you for your support!
           </p>
         </div>
       )}
