@@ -19,7 +19,7 @@ SELECT
   1 as id,
   COALESCE(SUM(c.amount), 0) as total_raised,
   COUNT(DISTINCT c.wallet_address) as contributors,
-  10.2613 as cap,
+  COALESCE(SUM(c.amount), 0) as cap,
   CURRENT_TIMESTAMP as last_updated
 FROM public.contributions c;
 

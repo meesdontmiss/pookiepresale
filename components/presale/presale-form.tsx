@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,6 @@ const SUCCESS_SOUND_PATH = '/sounds/notification.wav'
 // Define constant for custom event
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
-const FINAL_CAP = 10.2613; // Define the final cap
 
 // Predefined SOL contribution amounts
 const PUBLIC_CONTRIBUTION_AMOUNT = 0.25
@@ -34,92 +33,65 @@ const formatWalletAddress = (address: string): string => {
   return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`
 }
 
-// Function to monitor treasury wallet balance
-const monitorTreasuryBalance = async () => {
-  try {
-    if (typeof window === 'undefined') return null;
-    
-    const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
-    const baseUrl = window.location.origin;
-    const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-    
-    // Get treasury balance - try multiple times if we get zero
-    let retryCount = 0;
-    let solBalance = 0;
-    
-    while (solBalance <= 0 && retryCount < 3) {
-      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
-      solBalance = treasuryBalance / LAMPORTS_PER_SOL;
-      
-      if (solBalance <= 0) {
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        retryCount++;
-      }
-    }
-    
-    console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
-    
-    // Only dispatch event if we got a valid balance
-    if (solBalance > 0) {
-      // Update the progress bar based on the actual wallet balance
-      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
-        detail: {
-          raised: solBalance,
-          cap: FINAL_CAP, // Use the final cap
-          contributors: null // We don't know the exact contributor count from the wallet balance
-        }
-      });
-      window.dispatchEvent(event);
-    }
-    
-    return solBalance > 0 ? solBalance : null;
-  } catch (error) {
-    console.error('Error monitoring treasury balance:', error);
-    return null;
-  }
-};
+// Function to fetch final presale stats or treasury balance
+const fetchFinalState = async () => {
+  let finalRaised = 0;
+  let finalCap = 0;
+  let finalContributors = null;
 
-// Function to immediately refresh presale stats after a successful contribution
-const refreshPresaleStats = async () => {
   try {
-    // First, check the treasury wallet balance directly
-    const treasuryBalance = await monitorTreasuryBalance();
-    
-    // Then fetch stats from the API to update contributor count
-    const response = await fetch('/api/presale/stats');
-    if (!response.ok) throw new Error('Failed to fetch presale stats');
-    
-    const data = await response.json();
-    if (data.success) {
-      // Only dispatch if we have valid data
-      const apiRaisedAmount = Number(data.stats.total_raised || 0);
-      const validRaisedAmount = treasuryBalance !== null ? treasuryBalance : apiRaisedAmount;
-      
-      if (validRaisedAmount > 0) {
-        // Dispatch a custom event with the latest stats to update progress bar
-        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
-          detail: {
-            // Use treasury balance if available, otherwise use API data
-            raised: validRaisedAmount,
-            cap: FINAL_CAP, // Use the final cap
-            contributors: Number(data.stats.contributors || 0)
-          }
-        });
-        window.dispatchEvent(event);
-        
-        console.log('Stats refreshed after contribution:', 
-          treasuryBalance !== null ? `Treasury balance: ${treasuryBalance.toFixed(4)} SOL` : `API data: ${apiRaisedAmount} SOL`);
+    // First, try fetching the official stats from the API
+    const statsResponse = await fetch('/api/presale/stats');
+    if (statsResponse.ok) {
+      const statsData = await statsResponse.json();
+      if (statsData.success && statsData.stats) {
+        finalRaised = Number(statsData.stats.total_raised || 0);
+        // Since presale is paused, the cap IS the final raised amount
+        finalCap = finalRaised;
+        finalContributors = Number(statsData.stats.contributors || 0);
+        console.log(`Fetched final stats from API: Raised ${finalRaised}, Cap ${finalCap}`);
       }
     }
-    
-    // Set up a follow-up check after a short delay to ensure the stats are updated
-    setTimeout(async () => {
-      await monitorTreasuryBalance();
-    }, 5000);
-  } catch (error) {
-    console.error('Error refreshing presale stats:', error);
+    // Throw an error if stats fetch failed or returned invalid data, to trigger fallback
+    if (finalCap <= 0 && finalRaised <= 0) {
+        throw new Error("Stats API did not return valid final amount.")
+    }
+
+  } catch (statsError) {
+    console.warn("Failed to fetch final stats from API, falling back to treasury balance:", statsError);
+    // Fallback: Try fetching the balance directly from the treasury wallet
+    try {
+       if (typeof window !== 'undefined') {
+            const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+            const baseUrl = window.location.origin;
+            const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
+            const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
+            finalRaised = treasuryBalance / LAMPORTS_PER_SOL;
+            // Cap is still the final raised amount
+            finalCap = finalRaised;
+            console.log(`Fetched final state from treasury balance: Raised ${finalRaised}, Cap ${finalCap}`);
+       }
+    } catch (balanceError) {
+        console.error("Fallback failed: Error fetching treasury balance:", balanceError);
+        // If both methods fail, leave values as 0
+        finalRaised = 0;
+        finalCap = 0;
+    }
   }
+
+  // Dispatch the event with the determined final state
+  // Ensure cap always equals raised for paused state
+  const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
+    detail: {
+      raised: finalRaised,
+      cap: finalCap,
+      contributors: finalContributors
+    }
+  });
+  window.dispatchEvent(event);
+  console.log(`Dispatched final state: Raised ${finalRaised}, Cap ${finalCap}`);
+
+  return { raised: finalRaised, cap: finalCap, contributors: finalContributors };
 };
 
 // This is a mock function - in production, this would call a server action
@@ -144,11 +116,18 @@ export default function PreSaleForm() {
   const [password, setPassword] = useState("")
   const [isVerifying, setIsVerifying] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
-  const [isPaused, setIsPaused] = useState(true); // Add state to control paused status
+  const [isPaused, setIsPaused] = useState(true); // Keep this state, hardcoded to true
   const { toast } = useToast()
 
+  // Simplified useEffect: Fetch final state on mount
+  useEffect(() => {
+    fetchFinalState();
+    // No interval needed as the state is final
+  }, []); // Empty dependency array, runs only once on mount
+
   const handleVerifyPassword = async () => {
-    if (isPaused) return; // Prevent verification if paused
+    // Verification doesn't make sense if paused, but keep the disabled logic
+    if (isPaused) return;
     if (!password) return;
     
     setIsVerifying(true);
@@ -193,10 +172,11 @@ export default function PreSaleForm() {
   };
 
   const handleContribute = async () => {
+    // Contribution button is already disabled by isPaused, but double-check
     if (isPaused) {
       toast({
-        title: "Presale Paused",
-        description: "The presale has concluded.",
+        title: "Presale Concluded",
+        description: "The presale has finished.",
         variant: "default"
       })
       return;
@@ -324,9 +304,6 @@ export default function PreSaleForm() {
         ),
         duration: 8000,
       })
-      
-      // Immediately refresh the presale stats to update the progress bar
-      refreshPresaleStats()
       
       setSelectedAmount(0.25)
       
