@@ -22,6 +22,7 @@ const SUCCESS_SOUND_PATH = '/sounds/notification.wav'
 // Define constant for custom event
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
 const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
+const FINAL_CAP = 10.2613; // Define the final cap
 
 // Predefined SOL contribution amounts
 const PUBLIC_CONTRIBUTION_AMOUNT = 0.25
@@ -62,10 +63,10 @@ const monitorTreasuryBalance = async () => {
     // Only dispatch event if we got a valid balance
     if (solBalance > 0) {
       // Update the progress bar based on the actual wallet balance
-      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+      const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
         detail: {
           raised: solBalance,
-          cap: 75, // Keep the cap at 75 SOL
+          cap: FINAL_CAP, // Use the final cap
           contributors: null // We don't know the exact contributor count from the wallet balance
         }
       });
@@ -97,11 +98,11 @@ const refreshPresaleStats = async () => {
       
       if (validRaisedAmount > 0) {
         // Dispatch a custom event with the latest stats to update progress bar
-        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, { 
+        const event = new CustomEvent(PROGRESS_UPDATE_EVENT, {
           detail: {
             // Use treasury balance if available, otherwise use API data
             raised: validRaisedAmount,
-            cap: Number(data.stats.cap || 75),
+            cap: FINAL_CAP, // Use the final cap
             contributors: Number(data.stats.contributors || 0)
           }
         });
@@ -143,9 +144,11 @@ export default function PreSaleForm() {
   const [password, setPassword] = useState("")
   const [isVerifying, setIsVerifying] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
+  const [isPaused, setIsPaused] = useState(true); // Add state to control paused status
   const { toast } = useToast()
 
   const handleVerifyPassword = async () => {
+    if (isPaused) return; // Prevent verification if paused
     if (!password) return;
     
     setIsVerifying(true);
@@ -190,6 +193,14 @@ export default function PreSaleForm() {
   };
 
   const handleContribute = async () => {
+    if (isPaused) {
+      toast({
+        title: "Presale Paused",
+        description: "The presale has concluded.",
+        variant: "default"
+      })
+      return;
+    }
     if (!publicKey || !connected) {
       toast({
         title: "Wallet Not Connected",
@@ -386,6 +397,7 @@ export default function PreSaleForm() {
               <div className="flex space-x-2">
                 <Button 
                   className={`text-xs px-2 py-1 h-7 ${!isPrivateSale ? 'bg-green-500' : 'bg-zinc-700'}`}
+                  disabled={isPaused} // Disable button
                   onClick={() => {
                     setIsPrivateSale(false);
                     setSelectedAmount(PUBLIC_CONTRIBUTION_AMOUNT);
@@ -395,6 +407,7 @@ export default function PreSaleForm() {
                 </Button>
                 <Button 
                   className={`text-xs px-2 py-1 h-7 ${isPrivateSale ? 'bg-green-500' : 'bg-zinc-700'}`}
+                  disabled={isPaused} // Disable button
                   onClick={() => {
                     if (isPasswordVerified) {
                       setIsPrivateSale(true);
@@ -418,6 +431,7 @@ export default function PreSaleForm() {
                       key={amount}
                       variant={selectedAmount === amount ? "default" : "outline"}
                       className={`text-sm ${selectedAmount === amount ? 'bg-green-500' : 'bg-zinc-800'}`}
+                      disabled={isPaused} // Disable button
                       onClick={() => setSelectedAmount(amount)}
                     >
                       {amount} SOL
@@ -427,6 +441,7 @@ export default function PreSaleForm() {
                   <Button
                     variant="default"
                     className="text-sm bg-green-500"
+                    disabled={isPaused} // Disable button
                     onClick={() => setSelectedAmount(PUBLIC_CONTRIBUTION_AMOUNT)}
                   >
                     {PUBLIC_CONTRIBUTION_AMOUNT} SOL
@@ -441,7 +456,7 @@ export default function PreSaleForm() {
                 <div>
                   <p className="font-medium">Unlock Higher Caps</p>
                   <p className="mt-1 text-muted-foreground">
-                    Know the secret phrase? <Button variant="link" onClick={() => setShowPasswordForm(true)} className="h-auto p-0 text-xs">Click here</Button> to unlock private sale with higher caps.
+                    Know the secret phrase? <Button variant="link" onClick={() => setShowPasswordForm(true)} className="h-auto p-0 text-xs" disabled={isPaused}>Click here</Button> to unlock private sale with higher caps.
                   </p>
                 </div>
               </div>
@@ -450,10 +465,10 @@ export default function PreSaleForm() {
           
           <Button
             className="w-full bg-green-500 hover:bg-green-600 text-white"
-            disabled={isSubmitting || !selectedAmount}
+            disabled={isPaused || isSubmitting || !selectedAmount} // Ensure disabled when paused
             onClick={handleContribute}
           >
-            {isSubmitting ? "Processing..." : `Contribute ${selectedAmount} SOL`}
+            {isPaused ? "Presale Concluded" : isSubmitting ? "Processing..." : `Contribute ${selectedAmount} SOL`}
           </Button>
           
           <p className="text-xs text-center text-gray-400 mt-2">
