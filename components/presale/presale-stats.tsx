@@ -2,220 +2,85 @@
 
 import { useState, useEffect, useRef } from "react"
 
-interface PresaleStats {
+interface PresaleStatsData {
   total_raised: number
   cap: number
-  contributors: number
+  contributors: number | null // Allow null for contributors
 }
 
-// Treasury wallet address constant
-const TREASURY_WALLET = process.env.NEXT_PUBLIC_TREASURY_WALLET || "4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh";
+// REMOVE Treasury wallet constant
+// REMOVE checkTreasuryWalletBalance function
 
 export default function PresaleStats() {
-  const [stats, setStats] = useState<PresaleStats>({
+  const [stats, setStats] = useState<PresaleStatsData>({
     total_raised: 0,
-    cap: 75,
-    contributors: 0
+    cap: 0, // Initialize cap to 0
+    contributors: null
   })
   const [loading, setLoading] = useState(true)
   
-  // Use a ref to store the last valid non-zero raised amount to prevent flashing to 0
-  const lastValidRaisedRef = useRef<number>(0)
+  // REMOVE lastValidRaisedRef
 
   // Calculate progress percentage
-  const progressPercent = Math.min(100, Math.round((stats.total_raised / stats.cap) * 100))
+  const progressPercent = stats.cap > 0 ? Math.min(100, Math.round((stats.total_raised / stats.cap) * 100)) : 0;
+  const isConcluded = stats.cap > 0 && stats.total_raised >= stats.cap;
 
-  // Function to check the treasury wallet balance directly
-  const checkTreasuryWalletBalance = async () => {
-    try {
-      if (typeof window === 'undefined') return null;
-      
-      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
-      const baseUrl = window.location.origin;
-      const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-      
-      // Get treasury balance
-      const treasuryBalance = await connection.getBalance(new PublicKey(TREASURY_WALLET));
-      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
-      
-      console.log(`PresaleStats: Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
-      
-      // Only update if the value is valid (non-zero) and different from current
-      if (solBalance > 0) {
-        lastValidRaisedRef.current = solBalance;
-        
-        // Update stats with the real treasury balance
-        setStats(prev => ({
-          ...prev,
-          total_raised: solBalance
-        }));
-      }
-      
-      return solBalance > 0 ? solBalance : null;
-    } catch (error) {
-      console.error('Error checking treasury balance:', error);
-      return null;
-    }
-  };
+  // REMOVE safelyUpdateStats function
 
-  // Function to update stats safely, preventing downgrades to zero
-  const safelyUpdateStats = (newStats: Partial<PresaleStats>) => {
-    setStats(prev => {
-      // If we're getting a new raised amount of 0 but we have a better value, use the better value
-      if (newStats.total_raised !== undefined && newStats.total_raised <= 0 && lastValidRaisedRef.current > 0) {
-        return {
-          ...prev,
-          ...newStats,
-          total_raised: lastValidRaisedRef.current
-        };
-      }
-      
-      // If we're getting a positive raised amount, update our reference
-      if (newStats.total_raised !== undefined && newStats.total_raised > 0) {
-        lastValidRaisedRef.current = newStats.total_raised;
-      }
-      
-      return {
-        ...prev,
-        ...newStats
-      };
-    });
-  };
+  // REMOVE first useEffect with fetchStats and intervals
 
+  // Setup real-time updates ONLY via the event listener
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        // First try to get the real wallet balance
-        const walletBalance = await checkTreasuryWalletBalance();
-        
-        // Then get the contributor count from the API
-        const response = await fetch('/api/presale/stats')
-        if (!response.ok) throw new Error('Failed to fetch presale stats')
-        
-        const data = await response.json()
-        if (data.success) {
-          // If we got a valid wallet balance, use it, otherwise use API data
-          const raisedAmount = walletBalance !== null ? walletBalance : Number(data.stats.total_raised || 0);
-          
-          // Update our last valid reference if we have a good value
-          if (raisedAmount > 0) {
-            lastValidRaisedRef.current = raisedAmount;
-          }
-          
-          safelyUpdateStats({
-            total_raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
-            cap: Number(data.stats.cap || 75),
-            contributors: Number(data.stats.contributors || 0)
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching presale stats:', error)
-        
-        // In case of error, don't reset the raised amount to 0
-        if (lastValidRaisedRef.current > 0) {
-          safelyUpdateStats({});
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
+    // REMOVE Supabase client initialization and subscriptions
     
-    fetchStats()
-    
-    // Set up intervals to periodically update the stats
-    const statsInterval = setInterval(fetchStats, 30000) // Update stats every 30 seconds
-    const walletInterval = setInterval(checkTreasuryWalletBalance, 60000) // Check wallet every minute
-    
-    return () => {
-      clearInterval(statsInterval)
-      clearInterval(walletInterval)
-    }
-  }, [])
-
-  // Setup real-time updates
-  useEffect(() => {
-    // Initialize Supabase client for real-time updates
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Supabase credentials not available')
-      return
-    }
-    
-    const { createClient } = require('@supabase/supabase-js')
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    
-    // Subscribe to all changes on contributions table - ensure table name matches main page
-    const subscription = supabase
-      .channel('public:contributions')
-      .on('INSERT', () => {
-        // When a new contribution is made, check the wallet balance and refresh the stats
-        checkTreasuryWalletBalance();
-        fetchStats();
-      })
-      .on('UPDATE', () => {
-        // When a contribution is updated, check the wallet balance and refresh the stats
-        checkTreasuryWalletBalance();
-        fetchStats();
-      })
-      .subscribe()
-    
-    // Function to fetch stats
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/api/presale/stats')
-        if (!response.ok) throw new Error('Failed to fetch presale stats')
-        
-        const data = await response.json()
-        if (data.success) {
-          // Keep the current raised amount (which may be from wallet balance)
-          // but update other stats from the API
-          safelyUpdateStats({
-            cap: Number(data.stats.cap || 75),
-            contributors: Number(data.stats.contributors || 0)
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching presale stats:', error)
-      }
-    }
+    // REMOVE fetchStats function inside this useEffect
 
     // Listen for custom progress update events from the contribution form
     const handleProgressUpdate = (event: CustomEvent) => {
       if (event.detail) {
         console.log('PresaleStats: Progress update event received:', event.detail);
+        setLoading(false); // Got data, no longer loading
         
-        // Only update the raised amount if it's valid and non-zero
-        const newRaised = event.detail.raised || 0;
-        
-        if (newRaised > 0) {
-          lastValidRaisedRef.current = newRaised;
-        }
-        
-        safelyUpdateStats({
-          total_raised: newRaised > 0 ? newRaised : lastValidRaisedRef.current,
-          cap: event.detail.cap || 75,
-          contributors: event.detail.contributors || 0
+        // Directly set state from event detail
+        setStats({
+          total_raised: Number(event.detail.raised || 0),
+          cap: Number(event.detail.cap || 0), // Use cap from event, default to 0 if missing
+          contributors: event.detail.contributors // Use contributors from event (can be null)
         });
         
-        // After receiving an update event, verify with actual wallet balance
-        setTimeout(checkTreasuryWalletBalance, 5000);
+        // REMOVE timeout for checkTreasuryWalletBalance
       }
     };
 
     // Add event listener
     window.addEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
     
+    // Request initial state from form component (optional but good practice)
+    // This assumes the form component dispatches state on mount
+    console.log('PresaleStats: Component mounted, waiting for progress update event.');
+    // Set a timeout to remove loading state if no event received after a while
+    const loadingTimeout = setTimeout(() => setLoading(false), 5000); 
+
     // Cleanup function
     return () => {
-      subscription.unsubscribe()
       window.removeEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
+      clearTimeout(loadingTimeout);
     }
   }, [])
 
   return (
     <div className="space-y-3">
+      {/* Status Text */}
+      <div className="text-center mb-2">
+        {loading ? (
+          <p className="text-sm text-gray-400">Loading stats...</p>
+        ) : isConcluded ? (
+          <p className="text-sm font-semibold text-green-500">Status: Concluded</p>
+        ) : (
+          <p className="text-sm font-semibold text-yellow-500">Status: Live</p> // Should not be reached if form is paused
+        )}
+      </div>
+
       {/* Progress Bar */}
       <div>
         <div className="w-full relative h-6 bg-gray-800 rounded-full overflow-hidden">
