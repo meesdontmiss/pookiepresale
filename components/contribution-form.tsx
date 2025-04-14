@@ -60,6 +60,9 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const [showCelebration, setShowCelebration] = useState(false)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
   const { toast: useToastToast } = useToast()
+  
+  // Add state to track if presale is concluded - always true now
+  const [presaleConcluded] = useState(true)
 
   // Function to monitor treasury wallet balance
   const monitorTreasuryBalance = async () => {
@@ -169,194 +172,64 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Get the numeric amount based on selected option
-    const numericAmount = selectedOption;
+    // Show presale concluded message instead of proceeding
+    useToastToast({
+      title: "Presale Concluded",
+      description: "The $POOKIE presale has concluded. Thank you for your support!",
+      variant: "default",
+    });
+    return;
     
-    // Check if a valid amount is selected
-    if (!numericAmount) {
-      useToastToast({
-        title: "Invalid amount",
-        description: "Please select one of the available contribution amounts",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Check if wallet is connected
-    if (!publicKey) {
-      useToastToast({
-        title: "Wallet not connected",
-        description: "Please connect your Solana wallet before contributing",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Use the wallet's public key instead of manually entered address
-    const walletAddress = publicKey.toString();
-    
-    setIsContributing(true);
-    
-    try {
-      // Get treasury wallet address from environment variables
-      const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET;
-      
-      if (!treasuryWallet) {
-        throw new Error('Treasury wallet not configured');
-      }
-      
-      // Display confirmation message
-      useToastToast({
-        title: "Preparing transaction",
-        description: `Please approve the transaction for ${numericAmount} SOL in your wallet`,
-      });
-      
-      // We need to send SOL to treasury wallet in a proper transaction
-      // Use @solana/web3.js to create and send the transaction
-      const { Connection, SystemProgram, Transaction, PublicKey, sendAndConfirmTransaction, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
-      
-      // Create connection to Solana using our API proxy to avoid 403 errors
-      let connection;
-      
-      // Use our proxy URL in the browser, but fall back to the env var for server-side
-      if (typeof window !== 'undefined') {
-        const baseUrl = window.location.origin;
-        connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-      } else {
-        // Server-side connection (should not be used from client components, but adding for completeness)
-        connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
-      }
-      
-      // Create a transaction to send SOL to treasury
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(treasuryWallet),
-          lamports: numericAmount * LAMPORTS_PER_SOL, // Convert SOL to lamports
-        })
-      );
-      
-      // Get recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-      
-      try {
-        // Send transaction
-        if (!signTransaction) {
-          throw new Error('Wallet does not support signTransaction');
-        }
+    // The rest of the function will never execute
+    // ... existing submission code ...
+  }
+
+  // Render a different UI for concluded presale
+  if (presaleConcluded) {
+    return (
+      <div className="bg-background/30 p-4 rounded-lg backdrop-blur-sm border border-primary/20">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-lg font-semibold text-primary">Presale Concluded</h3>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 w-8 p-0"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
         
-        const signedTransaction = await signTransaction(transaction);
-        const signature = await connection.sendRawTransaction(signedTransaction.serialize());
-        
-        // Set the transaction signature for viewing later
-        setTransactionSignature(signature);
-        
-        // Wait for confirmation
-        await connection.confirmTransaction(signature, 'confirmed');
-        
-        // Play success sound
-        playSound('/sounds/notification.wav');
-        
-        useToastToast({
-          title: "Transaction sent!",
-          description: "Verifying your contribution...",
-        });
-        
-        // Verify the transaction with our API
-        const verifyResponse = await fetch('/api/transactions/verify', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            signature,
-            walletAddress,
-            amount: numericAmount,
-            tier,
-          }),
-        });
-        
-        const verifyResult = await verifyResponse.json();
-        
-        if (!verifyResponse.ok) {
-          throw new Error(verifyResult.error || 'Failed to verify transaction');
-        }
-        
-        // Calculate token amounts
-        const { baseTokens, totalTokens } = calculateTokens(numericAmount, 0);
-        
-        // Manually trigger a live notification for immediate feedback
-        const notificationEvent = new CustomEvent('pookie-new-contribution', { 
-          detail: {
-            wallet: formatWalletAddress(walletAddress),
-            amount: numericAmount,
-            timestamp: Date.now()
-          }
-        });
-        window.dispatchEvent(notificationEvent);
-        
-        useToastToast({
-          title: "Contribution successful!",
-          description: (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-1 text-green-500">
-                <Check size={16} className="flex-shrink-0" />
-                <span>Transaction confirmed on Solana blockchain</span>
-              </div>
-              <p>You contributed {numericAmount} SOL and will receive {formatTokenAmount(totalTokens)} POOKIE tokens.</p>
-              <a 
-                href={`https://solscan.io/tx/${signature}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-1"
-              >
-                <ExternalLink size={12} />
-                <span>View transaction on Solscan</span>
-              </a>
+        <div className="space-y-4">
+          <div className="rounded-lg bg-gray-800/50 p-3">
+            <p className="text-sm text-center">
+              The $POOKIE presale has concluded. Thank you for your support!
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div className="text-center p-2 bg-gray-800/30 rounded-md">
+              <p className="text-xs text-gray-400">Total Raised</p>
+              <p className="font-bold">{/* Let the event system handle this display */}</p>
             </div>
-          ),
-        });
-        
-        // Immediately refresh the presale stats to update the progress bar
-        refreshPresaleStats();
-        
-        // Check if the user hit the celebration milestone
-        if (numericAmount === CELEBRATION_MILESTONE) {
-          // Show special celebration for the milestone contribution!
-          setShowCelebration(true);
-        }
-        
-        // Close the form after success
-        setTimeout(() => {
-          onClose();
-        }, 5000);
-        
-      } catch (error) {
-        console.error('Transaction error:', error);
-        useToastToast({
-          title: "Transaction failed",
-          description: error instanceof Error ? error.message : "Failed to complete transaction",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error('Contribution error:', error);
-      useToastToast({
-        title: "Contribution failed",
-        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsContributing(false);
-    }
-  };
+            <div className="text-center p-2 bg-gray-800/30 rounded-md">
+              <p className="text-xs text-gray-400">Status</p>
+              <p className="font-bold text-red-500">CONCLUDED</p>
+            </div>
+          </div>
+          
+          <Button 
+            className="w-full bg-gray-700 hover:bg-gray-600 cursor-not-allowed"
+            disabled={true}
+          >
+            Presale Concluded
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
-  const closeCelebration = () => {
-    setShowCelebration(false);
-  };
-
+  // Original render for active presale
   return (
     <>
       {showCelebration && (
@@ -376,7 +249,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
                 variant="ghost" 
                 size="icon" 
                 className="h-8 w-8 rounded-full bg-black/20 hover:bg-black/40"
-                onClick={closeCelebration}
+                onClick={() => setShowCelebration(false)}
               >
                 <X className="h-4 w-4" />
                 <span className="sr-only">Close</span>
@@ -399,7 +272,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
               </div>
               
               <div className="mt-4 text-center">
-                <Button onClick={closeCelebration}>
+                <Button onClick={() => setShowCelebration(false)}>
                   Continue
                 </Button>
               </div>
@@ -452,7 +325,7 @@ export default function ContributionForm({ maxContribution, tier, onClose }: Con
           
           <div className="flex items-start gap-2 rounded-md bg-blue-900/20 p-2 text-xs">
             <Info className="h-4 w-4 flex-shrink-0 mt-0.5 text-blue-400" />
-            <div>
+          <div>
               <p className="font-medium text-blue-400">Wallet Connected</p>
               <p className="mt-1 text-blue-300">
                 Using wallet: {publicKey ? `${publicKey.toString().substring(0, 4)}...${publicKey.toString().substring(publicKey.toString().length - 4)}` : 'Not connected'}

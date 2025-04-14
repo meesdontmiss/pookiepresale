@@ -58,6 +58,9 @@ export default function Home() {
   // Use a ref to store the last valid non-zero raised amount
   const lastValidRaisedRef = useRef<number>(0);
 
+  // Calculate presale progress percentage - ALWAYS 100% NOW
+  const presaleProgressPercent = 100; // HARDCODE TO 100% since presale is concluded
+
   // Set mounted to true on component mount to prevent hydration mismatch
   useEffect(() => {
     setMounted(true)
@@ -269,9 +272,6 @@ export default function Home() {
       window.removeEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
     };
   }, [mounted]);
-
-  // Calculate progress percentage
-  const presaleProgressPercent = Math.min(100, Math.round((presaleStats.raised / presaleStats.cap) * 100));
 
   // Add real-time notifications subscription for live transactions
   useEffect(() => {
@@ -744,16 +744,16 @@ export default function Home() {
                 <div className="flex-1">
                   <h2 className="text-xl font-bold text-primary text-glow">$POOKIE Presale</h2>
                   <p className="text-sm text-foreground/80 mb-1">
-                    PookieMafia is waiting. $Pookie presale will be live till 24hrs before launch
+                    PookieMafia presale has concluded. Thank you for your support!
                   </p>
                 </div>
                 <div className="ml-2">
-                  <div className="text-primary font-bold animate-pulse text-right flex items-center justify-end">
-                    <span className="h-2.5 w-2.5 rounded-full bg-green-500 mr-1.5 shadow-[0_0_8px_#00ff88] animate-pulse"></span>
-                    LIVE
+                  <div className="text-primary font-bold text-right flex items-center justify-end">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500 mr-1.5 shadow-[0_0_8px_#ff0000]"></span>
+                    CONCLUDED
                   </div>
                   <div className="text-xs font-semibold inline-block text-foreground/60 text-right">
-                    {presaleStats.raised.toFixed(1)} / {presaleStats.cap} SOL
+                    {presaleStats.raised.toFixed(1)} / {presaleStats.raised.toFixed(1)} SOL
                   </div>
                 </div>
               </div>
@@ -821,13 +821,10 @@ export default function Home() {
                       className="w-1/2"
                     >
                       <Button 
-                        className="w-full border border-primary/50 text-primary font-medium bg-background/40 hover:bg-primary/10 shadow-sm h-10" 
-                        onClick={() => {
-                          setShowPresale(true);
-                          playClickSound();
-                        }}
+                        className="w-full border border-primary/50 text-primary/50 font-medium bg-background/40 cursor-not-allowed h-10" 
+                        disabled={true}
                       >
-                        Public Sale (0.25 SOL)
+                        Presale Concluded
                       </Button>
                     </motion.div>
                     <motion.div 
@@ -835,27 +832,12 @@ export default function Home() {
                       whileTap={{ scale: 0.98 }}
                       className="w-1/2"
                     >
-                      {isPasswordVerified ? (
-                        <Button 
-                          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all duration-200 animate-pulse-glow h-10" 
-                          onClick={() => {
-                            setShowPresale(true);
-                            playClickSound();
-                          }}
-                        >
-                          Private Sale (2.0 SOL)
-                        </Button>
-                      ) : (
-                        <Button 
-                          className="w-full border border-primary/50 text-primary font-medium bg-background/40 hover:bg-primary/10 shadow-sm h-10" 
-                          onClick={() => {
-                            setShowPasswordForm(true);
-                            playClickSound();
-                          }}
-                        >
-                          Unlock Private Sale
-                        </Button>
-                      )}
+                      <Button 
+                        className="w-full border border-primary/50 text-primary/50 font-medium bg-background/40 cursor-not-allowed h-10" 
+                        disabled={true}
+                      >
+                        Presale Concluded
+                      </Button>
                     </motion.div>
                   </>
                 )}
