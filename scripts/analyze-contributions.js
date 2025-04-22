@@ -105,7 +105,10 @@ async function main() {
 
     // Process all contributions
     allContributions.forEach(contribution => {
-      const { wallet_address, amount, tier = 'unknown', transaction_signature } = contribution;
+      const { wallet_address, amount, transaction_signature } = contribution;
+      
+      // Infer tier based on amount
+      const tier = inferTier(amount);
       
       // Add to tier summary
       tierSummary[tier] = (tierSummary[tier] || 0) + amount;
@@ -209,6 +212,13 @@ _Report generated on ${new Date().toLocaleString()}_
     console.error('Error:', error.message);
     process.exit(1);
   }
+}
+
+// Helper function to infer tier based on amount
+function inferTier(amount) {
+  if (amount >= 0.5) return 'core'; // Private sale (0.5 SOL and above)
+  if (amount <= 0.25) return 'public'; // Public sale (0.25 SOL)
+  return 'unknown'; // Other amounts
 }
 
 main(); 

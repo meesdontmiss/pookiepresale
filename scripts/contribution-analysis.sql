@@ -15,16 +15,25 @@ CREATE TEMP TABLE temp_contribution_report AS (
     WHERE is_verified = true
   ),
   
-  -- Tier breakdown
+  -- Tier breakdown - infer tier from amount (since there's no tier column)
   tier_summary AS (
     SELECT
-      COALESCE(tier, 'unknown') AS tier,
+      CASE
+        WHEN amount >= 0.5 THEN 'core' -- 0.5 SOL and above = private sale (core)
+        WHEN amount <= 0.25 THEN 'public' -- 0.25 SOL = public sale
+        ELSE 'unknown'
+      END AS inferred_tier,
       SUM(amount) AS amount,
       COUNT(DISTINCT wallet_address) AS contributors,
       COUNT(*) AS contributions
     FROM public.contributions
     WHERE is_verified = true
-    GROUP BY COALESCE(tier, 'unknown')
+    GROUP BY 
+      CASE
+        WHEN amount >= 0.5 THEN 'core'
+        WHEN amount <= 0.25 THEN 'public'
+        ELSE 'unknown'
+      END
   ),
   
   -- Wallet summary
@@ -42,7 +51,7 @@ CREATE TEMP TABLE temp_contribution_report AS (
   
   SELECT
     'summary' AS report_type,
-    NULL AS tier,
+    NULL AS inferred_tier,
     NULL AS wallet_address,
     s.total_raised,
     s.unique_contributors,
@@ -56,7 +65,7 @@ CREATE TEMP TABLE temp_contribution_report AS (
   
   SELECT
     'tier' AS report_type,
-    ts.tier,
+    ts.inferred_tier,
     NULL AS wallet_address,
     ts.amount AS total_raised,
     NULL AS unique_contributors,
@@ -70,7 +79,7 @@ CREATE TEMP TABLE temp_contribution_report AS (
   
   SELECT
     'wallet' AS report_type,
-    NULL AS tier,
+    NULL AS inferred_tier,
     ws.wallet_address,
     ws.total_amount AS total_raised,
     NULL AS unique_contributors,
@@ -96,11 +105,11 @@ SELECT * FROM (
 SELECT * FROM (
   SELECT 
     CASE 
-      WHEN tier = 'core' THEN 'Private Sale (Core)'
-      WHEN tier = 'public' THEN 'Public Sale'
-      ELSE tier
+      WHEN inferred_tier = 'core' THEN 'Private Sale (Core)' 
+      WHEN inferred_tier = 'public' THEN 'Public Sale'
+      ELSE inferred_tier
     END AS tier_name,
-    tier,
+    inferred_tier,
     amount,
     contributors,
     contributions,
@@ -126,7 +135,7 @@ SELECT * FROM (
 SELECT
   CASE
     WHEN report_type = 'summary' THEN 'Overall Summary'
-    WHEN report_type = 'tier' THEN 'Tier: ' || CASE WHEN tier = 'core' THEN 'Private Sale (Core)' WHEN tier = 'public' THEN 'Public Sale' ELSE tier END
+    WHEN report_type = 'tier' THEN 'Tier: ' || CASE WHEN inferred_tier = 'core' THEN 'Private Sale (Core)' WHEN inferred_tier = 'public' THEN 'Public Sale' ELSE inferred_tier END
     WHEN report_type = 'wallet' THEN 'Wallet: ' || wallet_address
   END AS category,
   ROUND(total_raised::numeric, 4) AS amount,
