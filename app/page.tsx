@@ -495,7 +495,7 @@ export default function Home() {
                     e.stopPropagation();
                     playClickSound();
                     
-                    const contractAddress = "YOUR_CONTRACT_ADDRESS_HERE"; 
+                    const contractAddress = "TNgsEdyvc7i1fSBM8MYY9zfQXJdy1fZCA2aNuRr8GFM"; 
                     navigator.clipboard.writeText(contractAddress);
                     
                     const button = e.currentTarget;
@@ -522,7 +522,7 @@ export default function Home() {
                   
                   {/* Middle Row: Address Preview */}
                   <div className="text-sm font-mono bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-lg w-fit shadow-inner my-1.5"> {/* Adjusted styling */}
-                    xxxx...xxxx
+                    TNgs...8GFM
                   </div>
                   
                   {/* Bottom Row: Copy Hint */}
