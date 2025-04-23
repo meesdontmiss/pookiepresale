@@ -594,7 +594,7 @@ export default function Home() {
                   }}
                 >
                   <span className="text-primary font-bold text-lg">📊</span>
-                  <span className="text-sm">Chart</span>
+                  <span className="text-sm">DEX</span>
                 </a>
               </motion.div>
             </div>
