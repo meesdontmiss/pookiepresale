@@ -584,13 +584,13 @@ export default function Home() {
                 className="w-full"
               >
                 <a
-                  href="https://dexscreener.com/solana/pookie"
+                  href="https://dexscreener.com/solana/duk4vltdl2jtxw9x5e1ukqeipsrcrcasbphnzevvnzfu"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 w-full border border-primary/30 text-primary font-medium bg-background/50 hover:bg-primary/10 hover:border-primary/50 shadow-md h-12 rounded-xl transition-colors duration-200"
                   onClick={(e) => {
                     e.preventDefault(); e.stopPropagation(); playClickSound();
-                    setTimeout(() => { window.open("https://dexscreener.com/solana/pookie", "_blank"); }, 10);
+                    setTimeout(() => { window.open("https://dexscreener.com/solana/duk4vltdl2jtxw9x5e1ukqeipsrcrcasbphnzevvnzfu", "_blank"); }, 10);
                   }}
                 >
                   <span className="text-primary font-bold text-lg">📊</span>
