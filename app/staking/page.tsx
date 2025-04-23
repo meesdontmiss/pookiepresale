@@ -11,7 +11,6 @@ import { motion, AnimatePresence } from "framer-motion"
 import type { ButtonProps } from "@/components/ui/button"
 import { playClickSound, playSound } from "@/hooks/use-audio"
 import { StakingScene } from "@/components/staking-scene"
-import TokenStaking from "@/components/token-staking"
 import NftStaking from "@/components/nft-staking"
 import { MusicPlayer } from "@/components/music-player"
 import { useRouter } from "next/navigation"
@@ -34,7 +33,6 @@ export default function StakingPage() {
   // Use a single "mounted" state to track client-side rendering
   const [mounted, setMounted] = useState(false)
   const { connected } = useWallet()
-  const [activeTab, setActiveTab] = useState("token")
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [velocity, setVelocity] = useState(0)
   const [clickCount, setClickCount] = useState(0) // Debug click counter
@@ -223,23 +221,11 @@ export default function StakingPage() {
             transition={{ duration: 0.5 }}
             className="glass p-6 rounded-lg border-glow shadow-glow"
           >
-            <Tabs 
-              defaultValue="token" 
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger value="token" className="text-lg">Token Staking</TabsTrigger>
-                <TabsTrigger value="nft" className="text-lg">NFT Staking</TabsTrigger>
-              </TabsList>
-              <TabsContent value="token" className="space-y-4">
-                <TokenStaking />
-              </TabsContent>
-              <TabsContent value="nft" className="space-y-4">
-                <NftStaking />
-              </TabsContent>
-            </Tabs>
+            {/* Render only NFT Staking directly */}
+            <h2 className="text-center text-2xl font-bold text-primary text-glow mb-6">NFT Staking</h2>
+            <div className="space-y-4">
+              <NftStaking />
+            </div>
           </motion.div>
         </div>
       </div>

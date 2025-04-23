@@ -1,0 +1,16 @@
+{
+  "total": 2.25,
+  "count": 2,
+  "contributions": [
+    {
+      "sender": "HFNQbRNiC6eznepbaJDxuNKN95XnKTxoGkr8Xaj5fXDs",
+      "amount": 2.0,
+      "signature": "3ysgbo51kyUrBZeNeKunbyiHPaGHV5NbD9j393qiL7soPe18GAPS16dSHA87z9sBKDGp9TiDWhQhtWTq693sMV1Q"
+    },
+    {
+      "sender": "5kAuGKmfupY3PzZ79caUeES58nAFTyz6sSyXyTQeEBGd",
+      "amount": 0.25,
+      "signature": "2i9BCkbYG6EzwjKNvTNUauvA7oDcJBwckP6puAePT6nsJELnYwt4zZQW477GfcgB8KQkzV88ZwutDJPaDKgp1Stm"
+    }
+  ]
+}

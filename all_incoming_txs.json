@@ -1,0 +1,20 @@
+{
+  "total_sol": 2.25,
+  "transaction_count": 2,
+  "transactions": [
+    {
+      "sender": "HFNQbRNiC6eznepbaJDxuNKN95XnKTxoGkr8Xaj5fXDs",
+      "amount": 2.0,
+      "time": "2025-04-13 21:34:47",
+      "timestamp": 1744605287,
+      "signature": "3ysgbo51kyUrBZeNeKunbyiHPaGHV5NbD9j393qiL7soPe18GAPS16dSHA87z9sBKDGp9TiDWhQhtWTq693sMV1Q"
+    },
+    {
+      "sender": "5kAuGKmfupY3PzZ79caUeES58nAFTyz6sSyXyTQeEBGd",
+      "amount": 0.25,
+      "time": "2025-04-13 21:34:46",
+      "timestamp": 1744605286,
+      "signature": "2i9BCkbYG6EzwjKNvTNUauvA7oDcJBwckP6puAePT6nsJELnYwt4zZQW477GfcgB8KQkzV88ZwutDJPaDKgp1Stm"
+    }
+  ]
+}

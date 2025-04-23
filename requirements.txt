@@ -1,0 +1,4 @@
+base58==2.1.1
+Requests==2.32.3
+solana_sdk==0.25.6
+solders==0.26.0

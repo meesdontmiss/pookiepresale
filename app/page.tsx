@@ -5,8 +5,6 @@ import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import PasswordGate from "@/components/password-gate"
-import ContributionForm from "@/components/contribution-form"
 import { PookieScene } from "@/components/pookie-scene"
 import Link from "next/link"
 import { ImageIcon, ChevronUpIcon, ChevronDownIcon, TwitterIcon, MessageCircleIcon } from "lucide-react"
@@ -32,9 +30,6 @@ export default function Home() {
   // Use a single "mounted" state to track client-side rendering
   const [mounted, setMounted] = useState(false)
   const { connected } = useWallet()
-  const [isPasswordVerified, setIsPasswordVerified] = useState(false)
-  const [showPresale, setShowPresale] = useState(false)
-  const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [minimized, setMinimized] = useState(false)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [velocity, setVelocity] = useState(0)
@@ -48,138 +43,11 @@ export default function Home() {
     timestamp: number
   }>>([])
   
-  // Update the presale progress values for production
-  const [presaleStats, setPresaleStats] = useState({
-    raised: 0,
-    cap: 75,
-    contributors: 0
-  });
-  
-  // Use a ref to store the last valid non-zero raised amount
-  const lastValidRaisedRef = useRef<number>(0);
-
-  // Calculate presale progress percentage - ALWAYS 100% NOW
-  const presaleProgressPercent = 100; // HARDCODE TO 100% since presale is concluded
-
   // Set mounted to true on component mount to prevent hydration mismatch
   useEffect(() => {
     setMounted(true)
   }, [])
   
-  // Safely update presale stats to prevent flashing to zero
-  const safelyUpdateStats = (newStats: Partial<typeof presaleStats>) => {
-    setPresaleStats(prev => {
-      // If we're getting a new raised amount of 0 but we have a better value, use the better value
-      if (newStats.raised !== undefined && newStats.raised <= 0 && lastValidRaisedRef.current > 0) {
-        return {
-          ...prev,
-          ...newStats,
-          raised: lastValidRaisedRef.current
-        };
-      }
-      
-      // If we're getting a positive raised amount, update our reference
-      if (newStats.raised !== undefined && newStats.raised > 0) {
-        lastValidRaisedRef.current = newStats.raised;
-      }
-      
-      return {
-        ...prev,
-        ...newStats
-      };
-    });
-  };
-  
-  // Fetch initial presale stats
-  useEffect(() => {
-    if (!mounted) return;
-    
-    const fetchPresaleStats = async () => {
-      try {
-        const response = await fetch('/api/presale/stats');
-        if (!response.ok) throw new Error('Failed to fetch presale stats');
-        
-        const data = await response.json();
-        if (data.success) {
-          const raisedAmount = Number(data.stats.total_raised || 0);
-          
-          // Store the value if it's valid
-          if (raisedAmount > 0) {
-            lastValidRaisedRef.current = raisedAmount;
-          }
-          
-          safelyUpdateStats({
-            raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
-            cap: Number(data.stats.cap || 75),
-            contributors: Number(data.stats.contributors || 0)
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching presale stats:', error);
-        
-        // In case of error, don't reset the raised amount to 0
-        if (lastValidRaisedRef.current > 0) {
-          safelyUpdateStats({});
-        }
-      }
-    };
-    
-    fetchPresaleStats();
-    
-    // Set up an interval to periodically update the stats
-    const intervalId = setInterval(fetchPresaleStats, 30000); // Update every 30 seconds
-    
-    return () => clearInterval(intervalId);
-  }, [mounted]);
-
-  // Function to monitor the treasury wallet balance directly
-  const checkTreasuryWalletBalance = async () => {
-    try {
-      if (typeof window === 'undefined') return null;
-      
-      const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
-      const baseUrl = window.location.origin;
-      const connection = new Connection(`${baseUrl}/api/rpc/proxy`, 'confirmed');
-      
-      // Treasury wallet address
-      const treasuryWallet = process.env.NEXT_PUBLIC_TREASURY_WALLET || '4rYvLKto7HzVESZnXj7RugCyDgjz4uWeHR4MHCy3obNh';
-      
-      // Get treasury balance
-      const treasuryBalance = await connection.getBalance(new PublicKey(treasuryWallet));
-      const solBalance = treasuryBalance / LAMPORTS_PER_SOL;
-      
-      console.log(`Treasury wallet balance: ${solBalance.toFixed(4)} SOL`);
-      
-      // Only update if we got a valid non-zero balance
-      if (solBalance > 0) {
-        lastValidRaisedRef.current = solBalance;
-        
-        // Update presale stats with the real treasury balance
-        safelyUpdateStats({
-          raised: solBalance
-        });
-      }
-      
-      return solBalance > 0 ? solBalance : null;
-    } catch (error) {
-      console.error('Error checking treasury balance:', error);
-      return null;
-    }
-  };
-  
-  // Set up periodic treasury wallet balance check
-  useEffect(() => {
-    if (!mounted) return;
-    
-    // Check wallet balance immediately
-    checkTreasuryWalletBalance();
-    
-    // Then check every minute
-    const walletCheckInterval = setInterval(checkTreasuryWalletBalance, 60000);
-    
-    return () => clearInterval(walletCheckInterval);
-  }, [mounted]);
-
   // Subscribe to real-time updates for presale stats
   useEffect(() => {
     if (!mounted) return;
@@ -200,245 +68,117 @@ export default function Home() {
     const subscription = supabase
       .channel('public:contributions')
       .on('INSERT', () => {
-        // When a new contribution is made, refresh the stats
-        fetchPresaleStats();
-      })
-      .on('UPDATE', () => {
-        // When a contribution is updated, refresh the stats
-        fetchPresaleStats();
+        // Handle new contributions for notifications if needed
       })
       .subscribe();
     
-    // Function to fetch stats
-    const fetchPresaleStats = async () => {
-      try {
-        const response = await fetch('/api/presale/stats');
-        if (!response.ok) throw new Error('Failed to fetch presale stats');
-        
-        const data = await response.json();
-        if (data.success) {
-          const raisedAmount = Number(data.stats.total_raised || 0);
-          
-          // Update our reference if we got a valid value
-          if (raisedAmount > 0) {
-            lastValidRaisedRef.current = raisedAmount;
-          }
-          
-          safelyUpdateStats({
-            raised: raisedAmount > 0 ? raisedAmount : lastValidRaisedRef.current,
-            cap: Number(data.stats.cap || 75),
-            contributors: Number(data.stats.contributors || 0)
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching presale stats:', error);
-        
-        // In case of error, don't reset the raised amount to 0
-        if (lastValidRaisedRef.current > 0) {
-          safelyUpdateStats({});
-        }
-      }
-    };
-
-    // Listen for custom progress update events from the contribution form
-    const handleProgressUpdate = (event: CustomEvent) => {
-      if (event.detail) {
-        console.log('Progress update event received:', event.detail);
-        
-        // Only update if we got a valid non-zero raised amount
-        const newRaised = event.detail.raised || 0;
-        
-        if (newRaised > 0) {
-          lastValidRaisedRef.current = newRaised;
-        }
-        
-        safelyUpdateStats({
-          raised: newRaised > 0 ? newRaised : lastValidRaisedRef.current,
-          cap: event.detail.cap || 75,
-          contributors: event.detail.contributors || 0
-        });
-        
-        // After receiving an update event, verify with actual wallet balance
-        setTimeout(checkTreasuryWalletBalance, 5000);
-      }
-    };
-
-    // Add event listener
-    window.addEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
-    
-    // Cleanup function
     return () => {
       subscription.unsubscribe();
-      window.removeEventListener('pookie-progress-update', handleProgressUpdate as EventListener);
     };
   }, [mounted]);
 
-  // Add real-time notifications subscription for live transactions
-  useEffect(() => {
-    if (!mounted) return;
-    
-    // Initialize Supabase client for real-time updates
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Supabase credentials not available');
-      return;
-    }
-    
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    // Subscribe to new confirmed contributions
-    const subscription = supabase
-      .channel('public:contributions')
-      .on('INSERT', (payload: any) => {
-        const newContribution = payload.new;
-        
-        if (newContribution && newContribution.status === 'confirmed') {
-          // Add a new notification
-          setNotifications(prev => [
-            {
-              id: Date.now(),
-              amount: newContribution.amount,
-              wallet: formatWalletAddress(newContribution.wallet_address),
-              timestamp: Date.now()
-            },
-            ...prev.slice(0, 4) // Keep only the latest 5 notifications
-          ]);
-          
-          // Play notification sound
-          playSound('/sounds/notification.wav');
-        }
-      })
-      .subscribe();
-    
-    // Listen for custom contribution notifications from contribution form
-    const handleDirectContribution = (event: CustomEvent) => {
-      if (event.detail) {
-        console.log('Direct contribution notification received:', event.detail);
-        
-        // Add the notification immediately
-        setNotifications(prev => [
-          {
-            id: Date.now(),
-            amount: event.detail.amount,
-            wallet: event.detail.wallet,
-            timestamp: event.detail.timestamp
-          },
-          ...prev.slice(0, 4) // Keep only the latest 5 notifications
-        ]);
-        
-        // Play notification sound for immediate feedback
-        playSound('/sounds/notification.wav');
-      }
-    };
-    
-    // Add event listener for direct contributions
-    window.addEventListener('pookie-new-contribution', handleDirectContribution as EventListener);
-    
-    // Cleanup function
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener('pookie-new-contribution', handleDirectContribution as EventListener);
-    };
-  }, [mounted]);
-
-  // Format wallet address for display (e.g., "wallet1...xyz")
+  // Format wallet address for display
   const formatWalletAddress = (address: string): string => {
     if (!address) return '';
     return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
   };
-
-  // More efficient cursor tracking with requestAnimationFrame
+  
+  // Mouse tracking for 3D model interactivity
   useEffect(() => {
-    if (!mounted) return
-    
-    let lastMousePosition = { x: 0, y: 0 };
-    let isMoving = false;
-    
     const handleMouseMove = (event: MouseEvent) => {
-      lastMousePosition = {
-        x: event.clientX,
-        y: event.clientY
-      };
-      isMoving = true; 
+      // Store the event for later processing in animation frame
+      const mouseX = event.clientX;
+      const mouseY = event.clientY;
+      
+      // Add to the trail
+      const timestamp = Date.now();
+      trailRef.current.push({ x: mouseX, y: mouseY, timestamp });
+      
+      // Limit trail length
+      if (trailRef.current.length > 10) {
+        trailRef.current.shift();
+      }
     };
     
     const updateMousePosition = () => {
-      if (isMoving) {
-        const dx = lastMousePosition.x - prevPosition.current.x;
-        const dy = lastMousePosition.y - prevPosition.current.y;
-        const currentVelocity = Math.sqrt(dx * dx + dy * dy) * 0.1;
+      // Continue the animation loop
+      rafRef.current = requestAnimationFrame(updateMousePosition);
+      
+      // Skip if no movement recorded yet
+      if (trailRef.current.length === 0) return;
+      
+      // Get the latest position
+      const latest = trailRef.current[trailRef.current.length - 1];
+      
+      // Calculate velocity based on recent movement
+      let vx = 0;
+      let vy = 0;
+      let totalPoints = 0;
+      
+      // Use the last 200ms of movement to calculate velocity
+      const now = Date.now();
+      const recentTrail = trailRef.current.filter(point => now - point.timestamp < 200);
+      
+      if (recentTrail.length >= 2) {
+        const first = recentTrail[0];
+        const last = recentTrail[recentTrail.length - 1];
+        const deltaX = last.x - first.x;
+        const deltaY = last.y - first.y;
+        const deltaTime = (last.timestamp - first.timestamp) / 1000; // convert to seconds
         
-        setMousePosition(lastMousePosition);
-        setVelocity(Math.min(currentVelocity, 8));
-        
-        // Only add trail points when moving with some velocity
-        if (currentVelocity > 0.5) {
-          const now = Date.now();
-          trailRef.current.push({ 
-            ...lastMousePosition, 
-            timestamp: now
-          });
-          
-          // Keep fewer points for a shorter trail
-          trailRef.current = trailRef.current
-            .filter(point => now - point.timestamp < 150)
-            .slice(-3);
+        if (deltaTime > 0) {
+          vx = deltaX / deltaTime;
+          vy = deltaY / deltaTime;
         }
-        
-        prevPosition.current = lastMousePosition;
-        isMoving = false;
       }
       
-      rafRef.current = requestAnimationFrame(updateMousePosition);
+      // Calculate the magnitude of velocity
+      const velocityMagnitude = Math.sqrt(vx * vx + vy * vy);
+      
+      // Map velocity to a 0-1 range with some dampening
+      const normalizedVelocity = Math.min(velocityMagnitude / 1000, 1);
+      
+      // Update state
+      setMousePosition({ x: latest.x, y: latest.y });
+      setVelocity(normalizedVelocity);
+      
+      // Store the current position for next frame
+      prevPosition.current = { x: latest.x, y: latest.y };
+      
+      // Cleanup old trail points
+      const oneSecondAgo = now - 1000;
+      trailRef.current = trailRef.current.filter(point => point.timestamp > oneSecondAgo);
     };
     
-    window.addEventListener('mousemove', handleMouseMove);
+    // Set up mouse tracking
+    document.addEventListener('mousemove', handleMouseMove);
     rafRef.current = requestAnimationFrame(updateMousePosition);
     
+    // Cleanup
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mousemove', handleMouseMove);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
       }
     };
-  }, [mounted]);
+  }, []);
   
-  // We don't need a separate global click handler since GlobalSoundProvider does this
+  // Listen for custom debug events
   useEffect(() => {
-    if (!mounted) return;
-    
-    // Remove the global click sound handler - GlobalSoundProvider already does this
-    
-    return () => {};
-  }, [mounted]);
-
-  // Debug function to diagnose navigation issues
-  useEffect(() => {
-    if (!mounted) return;
-    
     const handleDebugKeypress = (e: KeyboardEvent) => {
-      // Use Alt+G and Alt+S as shortcuts to navigation in case buttons don't work
-      if (e.altKey) {
-        if (e.key === 'g') {
-          playClickSound();
-          window.location.href = '/gallery';
-        } else if (e.key === 's') {
-          playClickSound();
-          window.location.href = '/staking';
-        } else if (e.key === 'd') {
-          // Debug page shortcut
-          playClickSound();
-          window.location.href = '/debug';
-        }
+      // Only in development
+      if (process.env.NODE_ENV !== 'development') return;
+      
+      // Check for Alt+D to toggle debug tools
+      if (e.key === 'd' && e.altKey) {
+        // Navigate to debug page
+        window.location.href = '/debug';
       }
     };
     
     window.addEventListener('keydown', handleDebugKeypress);
     return () => window.removeEventListener('keydown', handleDebugKeypress);
-  }, [mounted]);
+  }, []);
 
   // Memoize gradient definition to avoid recreation
   const gradientDef = useMemo(() => (
@@ -449,11 +189,6 @@ export default function Home() {
       </radialGradient>
     </defs>
   ), []);
-
-  // Update the presale progress values for production
-  const PRESALE_CAP = 75; // Maximum SOL to raise
-  const PRESALE_RAISED = 0; // Start at 0 for production
-  const PRESALE_PROGRESS_PERCENT = Math.min(100, Math.round((PRESALE_RAISED / PRESALE_CAP) * 100));
 
   // Don't render custom cursor or animations until client-side
   if (!mounted) {
@@ -729,188 +464,142 @@ export default function Home() {
       {/* Main Content - empty to allow full interaction with the 3D model */}
       <div className="relative z-10 flex-1"></div>
 
-      {/* Sale Box - with animations */}
+      {/* Social Links Box - Enhanced UI */}
       <AnimatePresence>
-        {(!showPresale) && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20, transition: { duration: 1.5 } }}
-            transition={{ duration: 0.5 }}
-            className="absolute bottom-8 left-0 right-0 mx-auto z-10 max-w-[500px] w-[calc(100%-2rem)]"
-          >
-            <div className="glass p-3 rounded-lg border-glow shadow-glow overflow-hidden">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h2 className="text-xl font-bold text-primary text-glow">$POOKIE Presale</h2>
-                  <p className="text-sm text-foreground/80 mb-1">
-                    PookieMafia presale has concluded. Thank you for your support!
-                  </p>
-                </div>
-                <div className="ml-2">
-                  <div className="text-primary font-bold text-right flex items-center justify-end">
-                    <span className="h-2.5 w-2.5 rounded-full bg-red-500 mr-1.5 shadow-[0_0_8px_#ff0000]"></span>
-                    CONCLUDED
-                  </div>
-                  <div className="text-xs font-semibold inline-block text-foreground/60 text-right">
-                    {presaleStats.raised.toFixed(1)} / {presaleStats.raised.toFixed(1)} SOL
-                  </div>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 mb-2 mt-1">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>Price:</span>
-                    <span className="font-bold">0.25 - 2.0 SOL</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Your Cap:</span>
-                    <span className="font-bold">{isPasswordVerified ? "2.0 SOL" : "0.25 SOL"}</span>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>Raised:</span>
-                    <span className="font-bold">{presaleStats.raised.toFixed(1)} SOL</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Progress:</span>
-                    <span className="font-bold text-primary">{presaleProgressPercent}%</span>
-                  </div>
-                </div>
-              </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20, transition: { duration: 1.5 } }}
+          transition={{ duration: 0.5 }}
+          className="absolute bottom-8 inset-x-0 mx-auto z-10 max-w-[480px] w-[calc(100%-2rem)]"
+        >
+          <div className="glass p-6 rounded-2xl border border-primary/20 shadow-xl backdrop-blur-lg overflow-hidden bg-background/70">
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-primary text-glow mb-1">$POOKIE</h2>
+              <p className="text-sm text-foreground/70">
+                damn pookie! how u waddle like that??
+              </p>
+            </div>
 
-              <div className="relative mb-3">
-                <div className="overflow-hidden h-2 mb-1 text-xs flex rounded-full bg-background/50">
-                  <motion.div 
-                    style={{ width: `${presaleProgressPercent}%` }}
-                    className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary"
-                    initial={{ width: "0%" }}
-                    animate={{ width: `${presaleProgressPercent}%` }}
-                    transition={{ duration: 1, delay: 0.5 }}
-                  />
-                </div>
-              </div>
-              
-              <div className="flex space-x-2">
-                {showPasswordForm ? (
-                  <div className="w-full">
-                    <PasswordGate 
-                      onVerified={() => {
-                        setIsPasswordVerified(true);
-                        setShowPasswordForm(false);
-                        playClickSound();
-                      }} 
-                    />
-                    <Button 
-                      className="text-xs p-0 h-6 mt-1" 
-                      onClick={() => {
-                        setShowPasswordForm(false);
-                        playClickSound();
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <motion.div 
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="w-1/2"
-                    >
-                      <Button 
-                        className="w-full border border-primary/50 text-primary/50 font-medium bg-background/40 cursor-not-allowed h-10" 
-                        disabled={true}
-                      >
-                        Presale Concluded
-                      </Button>
-                    </motion.div>
-                    <motion.div 
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="w-1/2"
-                    >
-                      <Button 
-                        className="w-full border border-primary/50 text-primary/50 font-medium bg-background/40 cursor-not-allowed h-10" 
-                        disabled={true}
-                      >
-                        Presale Concluded
-                      </Button>
-                    </motion.div>
-                  </>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-        
-        {showPresale && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.5 }}
-            className="absolute bottom-8 left-0 right-0 mx-auto z-10 max-w-[500px] w-[calc(100%-2rem)]"
-          >
-            <div className="glass p-4 rounded-lg border-glow shadow-glow overflow-hidden">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-bold text-primary text-glow">Contribute to $POOKIE</h2>
-                <motion.div 
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
+            {/* Contract Address Button - Reworked Layout */}
+            <div className="mb-6"> {/* Increased bottom margin */}
+              <motion.div 
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="w-full"
+              >
+                <button
+                  className="relative flex flex-col items-center justify-between w-full border border-primary/40 text-primary font-semibold bg-gradient-to-br from-primary/10 via-background/50 to-primary/15 hover:from-primary/20 hover:to-primary/25 shadow-lg h-[88px] rounded-xl overflow-hidden transition-all duration-200 group p-3" // Increased height and added padding
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    playClickSound();
+                    
+                    const contractAddress = "YOUR_CONTRACT_ADDRESS_HERE"; 
+                    navigator.clipboard.writeText(contractAddress);
+                    
+                    const button = e.currentTarget;
+                    button.classList.add("scale-[1.01]");
+                    setTimeout(() => button.classList.remove("scale-[1.01]"), 200);
+                    
+                    const copyStatus = button.querySelector(".copy-status");
+                    if (copyStatus) {
+                      copyStatus.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Copied!`;
+                      copyStatus.classList.add("text-primary", "font-bold");
+                      
+                      setTimeout(() => {
+                        copyStatus.innerHTML = `Click to copy`;
+                        copyStatus.classList.remove("text-primary", "font-bold");
+                      }, 2500);
+                    }
+                  }}
                 >
-                  <Button 
-                    className="h-7 px-2 text-xs" 
-                    onClick={() => {
-                      setShowPresale(false);
-                      playClickSound();
-                    }}
-                  >
-                    Back
-                  </Button>
-                </motion.div>
-              </div>
-              
-              <div className="flex flex-col md:flex-row md:items-start gap-3">
-                <div className="w-full md:w-2/5 mb-2 md:mb-0">
-                  <div className="bg-background/30 rounded-lg p-3 backdrop-blur-sm">
-                    <p className="text-sm text-foreground/90 mb-3">
-                      {isPasswordVerified 
-                        ? "You can contribute up to 2.0 SOL in the private sale."
-                        : "Public sale contribution is fixed at 0.25 SOL."}
-                    </p>
-                    {!isPasswordVerified && (
-                      <div className="mb-1">
-                        <Button 
-                          className="w-full border border-primary/50 text-primary font-medium bg-background/40 hover:bg-primary/10 shadow-sm h-10" 
-                          onClick={() => {
-                            setShowPresale(false);
-                            setShowPasswordForm(true);
-                            playClickSound();
-                          }}
-                        >
-                          Know the secret phrase?
-                        </Button>
-                      </div>
-                    )}
+                  {/* Top Row: Icon + Title */}
+                  <div className="flex items-center justify-center gap-2 w-full">
+                    <span className="text-primary font-bold text-lg">📋</span>
+                    <span className="text-md font-bold">Contract Address</span>
                   </div>
-                </div>
-                <div className="w-full md:w-3/5 bg-background/50 rounded-lg border border-primary/20">
-                  <ContributionForm 
-                    maxContribution={isPasswordVerified ? 2.0 : 0.25} 
-                    tier={isPasswordVerified ? "core" : "public"} 
-                    onClose={() => {
-                      setShowPresale(false);
-                      playClickSound();
-                    }}
-                  />
-                </div>
-              </div>
+                  
+                  {/* Middle Row: Address Preview */}
+                  <div className="text-sm font-mono bg-black/20 backdrop-blur-sm px-4 py-1.5 rounded-lg w-fit shadow-inner my-1.5"> {/* Adjusted styling */}
+                    xxxx...xxxx
+                  </div>
+                  
+                  {/* Bottom Row: Copy Hint */}
+                  <div className="copy-status text-xs text-foreground/60 group-hover:text-primary transition-colors w-full text-center">
+                    Click to copy
+                  </div>
+                </button>
+              </motion.div>
             </div>
-          </motion.div>
-        )}
+            
+            {/* Social Media & Chart Buttons - Centered Grid */}
+            <div className="grid grid-cols-3 gap-4">
+              {/* Twitter Button */}
+              <motion.div 
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full"
+              >
+                <a
+                  href="https://X.com/pookiethepeng"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full border border-primary/30 text-primary font-medium bg-background/50 hover:bg-primary/10 hover:border-primary/50 shadow-md h-12 rounded-xl transition-colors duration-200"
+                  onClick={(e) => {
+                    e.preventDefault(); e.stopPropagation(); playClickSound();
+                    setTimeout(() => { window.open("https://X.com/pookiethepeng", "_blank"); }, 10);
+                  }}
+                >
+                  <TwitterIcon size={18} className="text-primary/90" />
+                  <span className="text-sm">Twitter</span>
+                </a>
+              </motion.div>
+              
+              {/* Telegram Button */}
+              <motion.div 
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full"
+              >
+                <a
+                  href="https://t.me/pookiethepeng"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full border border-primary/30 text-primary font-medium bg-background/50 hover:bg-primary/10 hover:border-primary/50 shadow-md h-12 rounded-xl transition-colors duration-200"
+                  onClick={(e) => {
+                    e.preventDefault(); e.stopPropagation(); playClickSound();
+                    setTimeout(() => { window.open("https://t.me/pookiethepeng", "_blank"); }, 10);
+                  }}
+                >
+                  <MessageCircleIcon size={18} className="text-primary/90" />
+                  <span className="text-sm">Telegram</span>
+                </a>
+              </motion.div>
+              
+              {/* Dexscreener Button */}
+              <motion.div 
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full"
+              >
+                <a
+                  href="https://dexscreener.com/solana/pookie"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full border border-primary/30 text-primary font-medium bg-background/50 hover:bg-primary/10 hover:border-primary/50 shadow-md h-12 rounded-xl transition-colors duration-200"
+                  onClick={(e) => {
+                    e.preventDefault(); e.stopPropagation(); playClickSound();
+                    setTimeout(() => { window.open("https://dexscreener.com/solana/pookie", "_blank"); }, 10);
+                  }}
+                >
+                  <span className="text-primary font-bold text-lg">📊</span>
+                  <span className="text-sm">Chart</span>
+                </a>
+              </motion.div>
+            </div>
+          </div>
+        </motion.div>
       </AnimatePresence>
     </div>
   )
