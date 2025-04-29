@@ -316,4 +316,8 @@ The system is prepared for token contract integration but requires the actual to
 
 ```
 NEXT_PUBLIC_POOKIE_TOKEN_CONTRACT="your_token_contract_address"
-``` 
+```
+
+## Latest Updates
+- Updated NFT staking functionality
+- Added direct NFT staking link on homepage 
