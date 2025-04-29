@@ -121,6 +121,7 @@ export default function OnChainNftStaking() {
   const fetchWalletData = async () => {
     if (!publicKey) return
     
+    console.log("Fetching wallet data for publicKey:", publicKey.toString()); // DEBUG
     setError(null)
     setInitialLoading(true)
     try {
@@ -128,7 +129,13 @@ export default function OnChainNftStaking() {
       const walletAddress = publicKey.toString()
       const nfts = await fetchNFTsForWallet(walletAddress)
       
+      console.log("Raw NFTs fetched:", nfts); // DEBUG
+
       if (nfts.length === 0) {
+        console.log("No NFTs found for this wallet."); // DEBUG
+        setWalletNfts([]) // Clear wallet NFTs explicitly
+        setStakedNfts([]) // Clear staked NFTs explicitly
+        setTotalRewards(0)
         setInitialLoading(false)
         setIsLoading(false)
         return
@@ -152,7 +159,7 @@ export default function OnChainNftStaking() {
               currentReward: stakingInfo.currentReward,
             }
           } catch (error) {
-            console.error('Error getting staking info:', error)
+            console.error(`Error getting staking info for ${nft.mint}:`, error) // DEBUG
             return {
               ...nft,
               isStaked: false
@@ -161,10 +168,17 @@ export default function OnChainNftStaking() {
         })
       )
       
+      console.log("NFTs with staking status:", nftsWithStakingStatus); // DEBUG
+
       // Separate staked and unstaked NFTs
       const staked: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
       const unstaked: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
       
+      console.log("Unstaked NFTs (Wallet):"); // DEBUG
+      console.table(unstaked.map(nft => ({ mint: nft.mint, name: nft.name, collection: nft.collectionAddress }))); // DEBUG Table
+      console.log("Staked NFTs:"); // DEBUG
+      console.table(staked.map(nft => ({ mint: nft.mint, name: nft.name, collection: nft.collectionAddress }))); // DEBUG Table
+
       setWalletNfts(unstaked)
       setStakedNfts(staked)
       
