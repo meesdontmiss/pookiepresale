@@ -1,5 +1,9 @@
 import { Connection, PublicKey } from '@solana/web3.js'
 import axios from 'axios'
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
+import { fetchMetadata, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
+import { publicKey as umiPublicKey } from '@metaplex-foundation/umi'
+import { createWeb3JsRpc } from '@metaplex-foundation/umi-rpc-web3js'
 
 // The collection address for Pookie NFTs
 export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ'
@@ -18,75 +22,62 @@ export interface NFT {
 }
 
 /**
- * Get NFT metadata from account data
+ * Get NFT metadata from account data using Umi
  */
 async function parseNFTMetadata(connection: Connection, mintAddress: string): Promise<NFT | null> {
   try {
-    // Get the metadata PDA for the NFT mint
-    const metadataPDA = await getMetadataPDA(mintAddress);
-    
-    // Fetch the metadata account info from the connection
-    const accountInfo = await connection.getAccountInfo(new PublicKey(metadataPDA));
-    
-    if (!accountInfo) {
+    // Create a Umi instance
+    const umi = createUmi(connection.rpcEndpoint)
+      .use(mplTokenMetadata())
+      // Use createWeb3JsRpc wrapper to allow passing the web3.js Connection object
+      .use({
+        install(umi) {
+          umi.rpc = createWeb3JsRpc(umi, connection);
+        },
+      });
+
+    // Fetch metadata using Umi
+    const metadataAccount = await fetchMetadata(umi, umiPublicKey(mintAddress))
+
+    if (!metadataAccount) {
+      console.warn(`No metadata account found for mint: ${mintAddress}`);
       return null;
     }
-    
-    // Skip the metadata account discriminator (first 8 bytes)
-    // and parse the JSON URI from the account data
-    // This is a simplified approach - in production, you'd use proper deserialization
-    
-    // Try to extract the URI from the data
-    const dataStr = new TextDecoder().decode(accountInfo.data);
-    const uriMatch = dataStr.match(/(https?:\/\/[^"]+)/);
-    
-    if (uriMatch && uriMatch[0]) {
-      try {
-        // Fetch JSON metadata from the URI
-        const response = await axios.get(uriMatch[0]);
-        const metadata = response.data;
-        
-        return {
-          mint: mintAddress,
-          name: metadata.name || `NFT #${mintAddress.slice(0, 6)}`,
-          image: metadata.image || '/images/pookie-smashin.gif',
-          symbol: metadata.symbol || '',
-          attributes: metadata.attributes || [],
-          collectionAddress: POOKIE_COLLECTION_ADDRESS
-        };
-      } catch (error) {
-        console.error('Error fetching metadata from URI:', error);
-      }
-    }
-    
-    // Fallback if URI fetch failed
+
+    // --- Metadata URI is now correctly fetched via metadataAccount.uri ---
+    // --- We will fetch the content via a backend proxy later ---
+
+    // For now, return the basic info + URI (will be replaced by proxy data later)
+    // Clean the URI: Remove null terminators often found in on-chain URIs
+    const cleanedUri = metadataAccount.uri.replace(/\\u0000/g, '');
+
+    return {
+      mint: mintAddress,
+      // Use on-chain name and symbol if available
+      name: metadataAccount.name || `NFT #${mintAddress.slice(0, 6)}`,
+      symbol: metadataAccount.symbol || '',
+      // Store the URI, we'll fetch content via proxy later
+      image: cleanedUri, // Placeholder: Use URI for now, will be replaced by actual image from proxy
+      attributes: [], // Placeholder: Will be populated by proxy fetch
+      collectionAddress: POOKIE_COLLECTION_ADDRESS // Assuming collection check happens later
+    };
+
+  } catch (error) {
+    console.error(`Error parsing NFT metadata for ${mintAddress}:`, error);
+    // Fallback for errors during parsing
     return {
       mint: mintAddress,
       name: `NFT #${mintAddress.slice(0, 6)}`,
-      image: '/images/pookie-smashin.gif',
+      image: '/images/pookie-smashin.gif', // Default image on error
       collectionAddress: POOKIE_COLLECTION_ADDRESS
     };
-  } catch (error) {
-    console.error('Error parsing NFT metadata:', error);
-    return null;
   }
 }
 
 /**
- * Get the Metadata PDA for a mint address
+ * Get the Metadata PDA for a mint address (No longer needed with Umi's fetchMetadata)
  */
-async function getMetadataPDA(mintAddress: string): Promise<string> {
-  const METADATA_PROGRAM_ID = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
-  
-  const seeds = [
-    Buffer.from('metadata'),
-    new PublicKey(METADATA_PROGRAM_ID).toBuffer(),
-    new PublicKey(mintAddress).toBuffer(),
-  ];
-  
-  const [pda] = PublicKey.findProgramAddressSync(seeds, new PublicKey(METADATA_PROGRAM_ID));
-  return pda.toString();
-}
+// async function getMetadataPDA(mintAddress: string): Promise<string> { ... } // Removed
 
 /**
  * Fetch NFTs owned by a wallet using Solana RPC

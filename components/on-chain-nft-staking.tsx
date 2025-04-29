@@ -11,7 +11,7 @@ import Image from 'next/image'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsContent, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { fetchNFTsForWallet, NFT } from '@/utils/solana-nft'
+import { fetchNFTsForWallet, NFT as BaseNFT } from '@/utils/solana-nft'
 import { ChevronRightIcon, ChevronLeftIcon, ClockIcon, CoinsIcon, RefreshCwIcon, AlertTriangleIcon, WalletIcon } from 'lucide-react'
 import { 
   createStakeNftTransaction, 
@@ -26,11 +26,19 @@ import {
 } from '@/utils/solana-staking-client'
 import { ErrorBoundary } from 'react-error-boundary'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import axios from 'axios'
 
 // Sound paths
 const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
 const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 const ERROR_SOUND_PATH = '/sounds/error-sound.wav'
+
+// Extend BaseNFT to include full metadata fetched via proxy
+interface NFT extends BaseNFT {
+  metadataFetched?: boolean; // Flag to check if full metadata is loaded
+  // Add other potential fields from metadata JSON if needed
+  description?: string;
+}
 
 // NFT staking interface with additional staking data
 interface StakedNFT extends NFT {
@@ -71,6 +79,7 @@ export default function OnChainNftStaking() {
   const [error, setError] = useState<string | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0)
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
+  const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({})
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
@@ -117,24 +126,69 @@ export default function OnChainNftStaking() {
     }
   }
 
+  // Function to fetch full metadata via the backend proxy
+  const fetchMetadataViaProxy = async (nft: StakedNFT): Promise<StakedNFT> => {
+    if (nft.metadataFetched) {
+      // Already fetched or skipped
+      return nft;
+    }
+    
+    if (!nft.image || !nft.image.startsWith('http')) {
+      // If image is already set (e.g., fallback) or not a valid URI, skip
+      return { ...nft, metadataFetched: true }; 
+    }
+
+    const uri = nft.image; // The URI is stored in the 'image' field temporarily
+    setMetadataLoading(prev => ({ ...prev, [nft.mint]: true }));
+
+    try {
+      const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(uri)}`);
+      const fullMetadata = response.data;
+      
+      // Return the NFT with updated details from the fetched metadata
+      // Crucially, merge with existing nft object to preserve staking info
+      return {
+        ...nft, // Keep existing StakedNFT properties (isStaked, stakedAt, etc.)
+        name: fullMetadata.name || nft.name, // Use fetched name, fallback to on-chain
+        image: fullMetadata.image || '/images/pookie-smashin.gif', // Use fetched image, fallback
+        description: fullMetadata.description || '',
+        attributes: fullMetadata.attributes || [],
+        metadataFetched: true,
+      };
+    } catch (error) {
+      console.error(`Failed to fetch metadata for ${nft.mint} from proxy:`, error);
+      // Keep existing data but mark as fetched (to avoid retrying)
+      // Use fallback image if the URI fetch failed
+      return { 
+          ...nft, // Keep existing StakedNFT properties
+          image: '/images/pookie-smashin.gif',
+          metadataFetched: true 
+      };
+    } finally {
+       setMetadataLoading(prev => ({ ...prev, [nft.mint]: false }));
+    }
+  };
+
   // Fetch wallet NFTs and check staking status
   const fetchWalletData = async () => {
     if (!publicKey) return
     
-    console.log("Fetching wallet data for publicKey:", publicKey.toString()); // DEBUG
+    console.log("Fetching wallet data for publicKey:", publicKey.toString());
     setError(null)
     setInitialLoading(true)
+    // Reset loading states for metadata
+    setMetadataLoading({});
     try {
-      // Fetch NFTs in wallet
+      // Fetch base NFT data (mint, name, symbol, uri in image field)
       const walletAddress = publicKey.toString()
-      const nfts = await fetchNFTsForWallet(walletAddress)
+      const baseNfts = await fetchNFTsForWallet(walletAddress)
       
-      console.log("Raw NFTs fetched:", nfts); // DEBUG
+      console.log("Base NFTs fetched (URI in image field):", baseNfts);
 
-      if (nfts.length === 0) {
-        console.log("No NFTs found for this wallet."); // DEBUG
-        setWalletNfts([]) // Clear wallet NFTs explicitly
-        setStakedNfts([]) // Clear staked NFTs explicitly
+      if (baseNfts.length === 0) {
+        console.log("No base NFTs found for this wallet.");
+        setWalletNfts([])
+        setStakedNfts([])
         setTotalRewards(0)
         setInitialLoading(false)
         setIsLoading(false)
@@ -143,7 +197,7 @@ export default function OnChainNftStaking() {
       
       // Check staking status for each NFT
       const nftsWithStakingStatus: StakedNFT[] = await Promise.all(
-        nfts.map(async (nft) => {
+        baseNfts.map(async (nft) => {
           try {
             const stakingInfo = await getStakingInfo(
               connection, 
@@ -157,34 +211,50 @@ export default function OnChainNftStaking() {
               stakedAt: stakingInfo.stakedAt,
               daysStaked: stakingInfo.daysStaked,
               currentReward: stakingInfo.currentReward,
+              metadataFetched: false, // Mark as not fetched yet
             }
           } catch (error) {
-            console.error(`Error getting staking info for ${nft.mint}:`, error) // DEBUG
+            console.error(`Error getting staking info for ${nft.mint}:`, error)
             return {
               ...nft,
-              isStaked: false
+              isStaked: false,
+              metadataFetched: false, // Mark as not fetched yet
             }
           }
         })
       )
       
-      console.log("NFTs with staking status:", nftsWithStakingStatus); // DEBUG
+      console.log("NFTs with staking status (pre-metadata fetch):", nftsWithStakingStatus);
 
-      // Separate staked and unstaked NFTs
-      const staked: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
-      const unstaked: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
+      // Separate staked and unstaked NFTs *before* full metadata fetch
+      let stakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
+      let unstakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
       
-      console.log("Unstaked NFTs (Wallet):"); // DEBUG
-      console.table(unstaked.map(nft => ({ mint: nft.mint, name: nft.name, collection: nft.collectionAddress }))); // DEBUG Table
-      console.log("Staked NFTs:"); // DEBUG
-      console.table(staked.map(nft => ({ mint: nft.mint, name: nft.name, collection: nft.collectionAddress }))); // DEBUG Table
+      // Update state with base data first for quicker initial render
+      setWalletNfts(unstakedBase);
+      setStakedNfts(stakedBase);
+      setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
+      setIsLoading(false); // Base data loaded
+      setInitialLoading(false);
 
-      setWalletNfts(unstaked)
-      setStakedNfts(staked)
+      // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
+      // We do this after the initial render to avoid blocking UI
+      const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => {
+        const updatedNfts = await Promise.all(
+          nftsToUpdate.map(nft => fetchMetadataViaProxy(nft))
+        );
+        // Update state again with full metadata
+        setStateAction(updatedNfts);
+      };
+
+      // Fetch for unstaked and staked NFTs concurrently
+      await Promise.all([
+        fetchAndUpdateMetadata(unstakedBase, setWalletNfts),
+        fetchAndUpdateMetadata(stakedBase, setStakedNfts)
+      ]);
       
-      // Calculate total rewards
-      const total = staked.reduce((sum, nft) => sum + (nft.currentReward || 0), 0)
-      setTotalRewards(total)
+      console.log("Finished fetching full metadata via proxy.");
+
     } catch (error) {
       console.error('Error fetching wallet data:', error)
       setError('Failed to load NFT data. Please try again.')
@@ -193,9 +263,10 @@ export default function OnChainNftStaking() {
         description: "Failed to load your NFTs. Please try again.",
         variant: "destructive"
       })
-    } finally {
+       // Ensure loading states are reset on error
       setIsLoading(false)
       setInitialLoading(false)
+      setMetadataLoading({});
     }
   }
   
@@ -461,97 +532,111 @@ export default function OnChainNftStaking() {
   // NFT card component
   const NftCard = ({ nft, isStaked = false }: { nft: StakedNFT, isStaked?: boolean }) => {
     const info = stakedNfts.find(n => n.mint === nft.mint)
-    const isLoading = loadingStates[nft.mint] || false
+    const isLoadingMetadata = metadataLoading[nft.mint] || false
     
     return (
-      <Card className="bg-background/60 border border-primary/20 overflow-hidden hover:border-primary/60 transition-all duration-300 group">
-        <CardContent className="p-3">
-          <div className="relative aspect-square rounded-lg overflow-hidden mb-2">
-            <Image
-              src={nft.image}
-              alt={nft.name}
-              fill
-              className="object-cover transition-transform duration-300 group-hover:scale-110"
-              priority
-            />
-            
+      <motion.div
+        layout
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ duration: 0.2 }}
+        className="relative group"
+      >
+        <Card className="overflow-hidden bg-card/80 backdrop-blur-sm hover:shadow-lg transition-shadow duration-300 border-primary/20">
+          <CardContent className="p-0 aspect-square relative">
+            {isLoadingMetadata ? (
+              <Skeleton className="w-full h-full" />
+            ) : (
+              <Image 
+                src={nft.image || '/images/pookie-smashin.gif'} // Use fetched or fallback image
+                alt={nft.name || `NFT ${nft.mint.slice(0, 6)}`}
+                width={300} // Set appropriate dimensions
+                height={300}
+                className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
+                priority={!isStaked} // Prioritize loading wallet NFTs
+                unoptimized={nft.image?.endsWith('.gif')} // Avoid optimization for GIFs
+              />
+            )}
             {isStaked && (
-              <div className="absolute top-2 right-2 bg-primary text-xs py-1 px-2 rounded-full text-primary-foreground">
-                Staked
+              <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 text-xs rounded-full font-semibold shadow-md">
+                STAKED
               </div>
             )}
-          </div>
+          </CardContent>
           
-          <h3 className="text-sm font-medium mb-1 truncate">{nft.name}</h3>
-          
-          {isStaked ? (
-            <div className="space-y-2 mt-2">
-              <div className="flex items-center text-xs text-muted-foreground">
-                <ClockIcon size={12} className="mr-1" />
-                <span>Staked: {info?.daysStaked} days</span>
-              </div>
-              
-              <div className="flex items-center text-xs text-muted-foreground">
-                <CoinsIcon size={12} className="mr-1" />
-                <span>Rewards: {info?.currentReward} $POOKIE</span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => handleClaimRewards(nft.mint)}
-                  disabled={claimingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-                  className="w-full text-xs h-8"
-                >
-                  {claimingInProgress && selectedNftMint === nft.mint ? (
-                    <div className="flex items-center">
-                      <RefreshCwIcon size={12} className="mr-1 animate-spin" />
-                      Claiming...
-                    </div>
-                  ) : (
-                    "Claim Rewards"
-                  )}
-                </Button>
-                
-                <Button 
-                  variant="destructive" 
-                  size="sm"
-                  onClick={() => handleUnstakeNft(nft.mint)}
-                  disabled={unstakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-                  className="w-full text-xs h-8"
-                >
-                  {unstakingInProgress && selectedNftMint === nft.mint ? (
-                    <div className="flex items-center">
-                      <RefreshCwIcon size={12} className="mr-1 animate-spin" />
-                      Unstaking...
-                    </div>
-                  ) : (
-                    "Unstake"
-                  )}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button 
-              variant="default" 
-              size="sm"
-              onClick={() => handleStakeNft(nft.mint)}
-              disabled={stakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-              className="w-full mt-2 h-8"
-            >
-              {stakingInProgress && selectedNftMint === nft.mint ? (
-                <div className="flex items-center">
-                  <RefreshCwIcon size={14} className="mr-1 animate-spin" />
-                  Staking...
+          <CardFooter className="p-2">
+            <h3 className="text-sm font-medium mb-1 truncate">{nft.name}</h3>
+            
+            {isStaked ? (
+              <div className="space-y-2 mt-2">
+                <div className="flex items-center text-xs text-muted-foreground">
+                  <ClockIcon size={12} className="mr-1" />
+                  <span>Staked: {info?.daysStaked} days</span>
                 </div>
-              ) : (
-                "Stake NFT"
-              )}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+                
+                <div className="flex items-center text-xs text-muted-foreground">
+                  <CoinsIcon size={12} className="mr-1" />
+                  <span>Rewards: {info?.currentReward} $POOKIE</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => handleClaimRewards(nft.mint)}
+                    disabled={claimingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
+                    className="w-full text-xs h-8"
+                  >
+                    {claimingInProgress && selectedNftMint === nft.mint ? (
+                      <div className="flex items-center">
+                        <RefreshCwIcon size={12} className="mr-1 animate-spin" />
+                        Claiming...
+                      </div>
+                    ) : (
+                      "Claim Rewards"
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    variant="destructive" 
+                    size="sm"
+                    onClick={() => handleUnstakeNft(nft.mint)}
+                    disabled={unstakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
+                    className="w-full text-xs h-8"
+                  >
+                    {unstakingInProgress && selectedNftMint === nft.mint ? (
+                      <div className="flex items-center">
+                        <RefreshCwIcon size={12} className="mr-1 animate-spin" />
+                        Unstaking...
+                      </div>
+                    ) : (
+                      "Unstake"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button 
+                variant="default" 
+                size="sm"
+                onClick={() => handleStakeNft(nft.mint)}
+                disabled={stakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
+                className="w-full mt-2 h-8"
+              >
+                {stakingInProgress && selectedNftMint === nft.mint ? (
+                  <div className="flex items-center">
+                    <RefreshCwIcon size={14} className="mr-1 animate-spin" />
+                    Staking...
+                  </div>
+                ) : (
+                  "Stake NFT"
+                )}
+              </Button>
+            )}
+          </CardFooter>
+        </Card>
+      </motion.div>
     )
   }
   
@@ -566,15 +651,11 @@ export default function OnChainNftStaking() {
       )
     }
     
-    if (isLoading) {
+    if (isLoading || Object.values(metadataLoading).some(loading => loading)) {
       return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-36 w-full rounded-lg" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-8 w-full" />
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="aspect-square w-full h-auto rounded-lg" />
           ))}
         </div>
       )
