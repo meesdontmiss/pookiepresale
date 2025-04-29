@@ -597,6 +597,27 @@ export default function Home() {
                 </a>
               </motion.div>
             </div>
+            
+            {/* NFT Staking Button - Added below the social buttons */}
+            <div className="mt-4">
+              <motion.div 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-full"
+              >
+                <Link
+                  href="/staking"
+                  className="flex items-center justify-center gap-2 w-full border border-primary/50 text-primary font-medium bg-background/70 hover:bg-primary/10 hover:border-primary/70 shadow-md h-14 rounded-xl transition-colors duration-200"
+                  onClick={(e) => {
+                    e.stopPropagation(); 
+                    playClickSound();
+                  }}
+                >
+                  <span className="text-primary font-bold text-lg">🪙</span>
+                  <span className="text-sm font-semibold">NFT Staking</span>
+                </Link>
+              </motion.div>
+            </div>
           </div>
         </motion.div>
       </AnimatePresence>
