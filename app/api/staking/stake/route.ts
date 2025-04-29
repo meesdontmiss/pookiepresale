@@ -3,9 +3,64 @@ import { supabase } from '@/utils/supabase-client'
 
 export async function POST(request: Request) {
   try {
-    const { walletAddress, amount, vestingDays } = await request.json()
+    const { walletAddress, amount, vestingDays, stakingType, nftMint } = await request.json()
     
-    // Validate input parameters
+    // NFT staking validation
+    if (stakingType === 'nft') {
+      if (!walletAddress) {
+        return NextResponse.json(
+          { error: 'Wallet address is required' },
+          { status: 400 }
+        )
+      }
+      
+      if (!nftMint) {
+        return NextResponse.json(
+          { error: 'NFT mint address is required' },
+          { status: 400 }
+        )
+      }
+      
+      // Record NFT staking in the database
+      const { data, error } = await supabase
+        .from('nft_staking_records')
+        .insert({
+          wallet_address: walletAddress,
+          mint: nftMint,
+          staked_at: new Date().toISOString(),
+          days_staked: 0
+        })
+        .select()
+      
+      if (error) {
+        console.error('Error processing NFT staking:', error)
+        
+        // Check for duplicate error (unique constraint violation)
+        if (error.code === '23505') {
+          return NextResponse.json(
+            { error: 'This NFT is already staked' },
+            { status: 400 }
+          )
+        }
+        
+        return NextResponse.json(
+          { error: 'Failed to process NFT staking request' },
+          { status: 500 }
+        )
+      }
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: data?.[0]?.id,
+          walletAddress,
+          nftMint,
+          stakedAt: data?.[0]?.staked_at
+        }
+      })
+    }
+    
+    // Token staking validation
     if (!walletAddress) {
       return NextResponse.json(
         { error: 'Wallet address is required' },

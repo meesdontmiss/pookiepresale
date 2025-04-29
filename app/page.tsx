@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from "framer-motion"
 import type { ButtonProps } from "@/components/ui/button"
 import { playClickSound, playSound } from "@/hooks/use-audio"
 import { MusicPlayer } from "@/components/music-player"
+import { hasRequiredSupabaseConfig, SUPABASE_URL, SUPABASE_ANON_KEY } from '@/utils/env';
+import { createClient } from '@supabase/supabase-js';
 
 // Click sound path
 const CLICK_SOUND_PATH = '/sounds/click-sound-1.mp3'
@@ -52,17 +54,14 @@ export default function Home() {
   useEffect(() => {
     if (!mounted) return;
     
-    // Initialize Supabase client for real-time updates
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Supabase credentials not available');
+    // Check if Supabase configuration is available
+    if (!hasRequiredSupabaseConfig()) {
+      console.error('Supabase configuration is not available');
       return;
     }
     
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Initialize Supabase client for real-time updates
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     
     // Subscribe to all changes on contributions table
     const subscription = supabase

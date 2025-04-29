@@ -1,28 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 import { PublicKey } from '@solana/web3.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, hasRequiredSupabaseConfig } from './env';
 
-// Environment variables are automatically loaded in Next.js
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Check if we have the required configuration
+if (!hasRequiredSupabaseConfig()) {
+  console.error('Supabase configuration is missing. Check your environment variables.');
+}
 
 // Enhanced logging for Supabase connection
 console.log("Initializing Supabase client with:");
-console.log(`- URL: ${supabaseUrl ? (supabaseUrl.substring(0, 8) + '...') : 'undefined'}`);
-console.log(`- Key present: ${supabaseKey ? 'Yes' : 'No'}`);
-console.log(`- Key length: ${supabaseKey ? supabaseKey.length : 0}`);
-
-// Validate URL format
-if (!supabaseUrl || !supabaseUrl.startsWith('https://')) {
-  console.error('Invalid Supabase URL. Make sure NEXT_PUBLIC_SUPABASE_URL is set correctly.');
-}
-
-// Validate key format
-if (!supabaseKey || supabaseKey.length < 20) {
-  console.error('Invalid Supabase key. Make sure NEXT_PUBLIC_SUPABASE_ANON_KEY is set correctly.');
-}
+console.log(`- URL: ${SUPABASE_URL ? (SUPABASE_URL.substring(0, 8) + '...') : 'undefined'}`);
+console.log(`- Key present: ${SUPABASE_ANON_KEY ? 'Yes' : 'No'}`);
+console.log(`- Key length: ${SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY.length : 0}`);
 
 // Create client with secure options
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: false, // Don't persist auth session in localStorage
     autoRefreshToken: true
@@ -31,6 +23,11 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 
 // Test the connection on initialization
 (async function testConnection() {
+  if (!hasRequiredSupabaseConfig()) {
+    console.error('Skipping Supabase connection test due to missing configuration');
+    return;
+  }
+  
   try {
     const { data, error } = await supabase.from('contributions').select('created_at').limit(1);
     
@@ -49,12 +46,12 @@ export const createSchema = async () => {
   try {
     // Verify we have the service role key (not the anon key)
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!serviceKey || serviceKey === supabaseKey) {
+    if (!serviceKey || serviceKey === SUPABASE_ANON_KEY) {
       throw new Error('Schema creation requires service role key, not anon key');
     }
     
     // Create a special admin client with service role permissions
-    const adminClient = createClient(supabaseUrl, serviceKey);
+    const adminClient = createClient(SUPABASE_URL, serviceKey);
     
     // Create contributions table
     const { error: createTableError } = await adminClient.rpc('create_contributions_table');

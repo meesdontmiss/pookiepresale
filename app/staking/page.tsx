@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import type { ButtonProps } from "@/components/ui/button"
 import { playClickSound, playSound } from "@/hooks/use-audio"
 import { StakingScene } from "@/components/staking-scene"
-import NftStaking from "@/components/nft-staking"
+import OnChainNftStaking from "@/components/on-chain-nft-staking"
 import { MusicPlayer } from "@/components/music-player"
 import { useRouter } from "next/navigation"
 import { TwitterIcon } from "lucide-react"
@@ -221,10 +221,10 @@ export default function StakingPage() {
             transition={{ duration: 0.5 }}
             className="glass p-6 rounded-lg border-glow shadow-glow"
           >
-            {/* Render only NFT Staking directly */}
+            {/* Render on-chain NFT Staking */}
             <h2 className="text-center text-2xl font-bold text-primary text-glow mb-6">NFT Staking</h2>
             <div className="space-y-4">
-              <NftStaking />
+              <OnChainNftStaking />
             </div>
           </motion.div>
         </div>
