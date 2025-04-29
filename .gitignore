@@ -47,3 +47,4 @@ next-env.d.ts
 *_secret.json
 *_secrets.txt
 *_tokens.json
+.vercel
