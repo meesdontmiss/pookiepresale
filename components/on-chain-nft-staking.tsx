@@ -41,7 +41,7 @@ interface StakedNFT extends NFT {
 }
 
 // Error Fallback component for error boundary
-const ErrorFallback = ({ error, resetErrorBoundary }) => (
+const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error, resetErrorBoundary: () => void }) => (
   <div className="p-6 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
     <h3 className="text-lg font-medium text-red-800 dark:text-red-200">Something went wrong:</h3>
     <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error.message}</p>
@@ -109,7 +109,7 @@ export default function OnChainNftStaking() {
         toast({
           title: "Low Balance Warning",
           description: "Your wallet has insufficient SOL for transactions. Please add more SOL.",
-          variant: "warning",
+          variant: "destructive",
         })
       }
     } catch (error) {
