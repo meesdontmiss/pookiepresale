@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
-import "@/lib/rpc-patch"
+// import "@/lib/rpc-patch"
 import "./globals.css"
 
 export const metadata: Metadata = {
