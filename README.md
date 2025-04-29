@@ -320,4 +320,5 @@ NEXT_PUBLIC_POOKIE_TOKEN_CONTRACT="your_token_contract_address"
 
 ## Latest Updates
 - Updated NFT staking functionality
-- Added direct NFT staking link on homepage 
+- Added direct NFT staking link on homepage
+- Fixed deployment issues and updated documentation 
