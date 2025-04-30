@@ -1,12 +1,15 @@
-import { Connection, PublicKey } from '@solana/web3.js'
+import { Connection, PublicKey, AccountInfo } from '@solana/web3.js'
 import axios from 'axios'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
 import { fetchMetadata, mplTokenMetadata, TokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
-import { fromWeb3JsPublicKey } from '@metaplex-foundation/umi-web3js-adapters'
+import { fromWeb3JsPublicKey, toWeb3JsPublicKey } from '@metaplex-foundation/umi-web3js-adapters'
 import type { Umi } from '@metaplex-foundation/umi'
 
 // The collection address for Pookie NFTs
 export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ'
+
+// Token metadata program ID
+export const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
 // Singleton connection instance to prevent multiple connections
 let _connection: Connection | null = null;
@@ -19,7 +22,7 @@ function getRpcEndpoint() {
     const baseUrl = window.location.origin;
     return `${baseUrl}/api/rpc/proxy`;
   }
-  // Fallback for potential server-side usage (though less likely for these funcs)
+  // Fallback for potential server-side usage
   return process.env.SOLANA_RPC_URL_SERVER || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 }
 
@@ -88,145 +91,106 @@ interface ExtendedMetadata extends TokenMetadata {
   creators?: Creator[];
 }
 
+// Get metadata PDA address from mint
+async function getMetadataPDA(mintAddress: string): Promise<PublicKey> {
+  try {
+    // Manual calculation of metadata PDA
+    const [pda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('metadata'),
+        TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+        new PublicKey(mintAddress).toBuffer(),
+      ],
+      TOKEN_METADATA_PROGRAM_ID
+    );
+    
+    return pda;
+  } catch (error) {
+    console.error(`Error getting metadata PDA for ${mintAddress}:`, error);
+    throw error;
+  }
+}
+
 /**
- * Get NFT metadata from account data using Umi
+ * Get NFT metadata from account data using more robust approach
  */
 async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
   console.log(`Starting metadata parse for mint: ${mintAddress}`);
   try {
-    // Use the shared UMI instance
-    const umi = getUmi();
-
-    // Convert Solana PublicKey to UMI format
-    const mintPubKey = fromWeb3JsPublicKey(new PublicKey(mintAddress));
-    console.log('Fetching metadata account...');
-
-    // Fetch metadata with better error handling
-    const metadataAccount = await fetchMetadata(umi, mintPubKey).catch((error: any) => {
-      console.warn(`Error fetching metadata for ${mintAddress}:`, error?.message || error);
-      return null;
-    });
-
-    if (!metadataAccount) {
+    // Get the connection
+    const connection = getConnection();
+    
+    // Get the metadata account address
+    const metadataPDA = await getMetadataPDA(mintAddress);
+    console.log(`Metadata PDA for ${mintAddress}: ${metadataPDA.toString()}`);
+    
+    // Fetch metadata account data directly from RPC
+    const accountInfo = await connection.getAccountInfo(metadataPDA);
+    if (!accountInfo) {
       console.warn(`No metadata account found for mint: ${mintAddress}`);
       return null;
     }
-
-    // Clean the URI and log it for debugging
-    const cleanedUri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
-    console.log('Metadata URI:', cleanedUri);
     
+    // If we got this far, we have an NFT with metadata
+    let collectionAddress = null;
+    
+    // Try to parse metadata with UMI
     try {
-      // Fetch metadata with improved retry logic
-      const fetchMetadataWithRetry = async (retries = 3): Promise<any> => {
-        try {
-          console.log(`Fetching metadata from URI, attempt ${4 - retries}/3`);
-          const response = await axios.get(cleanedUri, { 
-            timeout: 5000,
-            headers: {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache'
-            }
-          });
-          return response.data;
-        } catch (error: any) {
-          console.log('Metadata fetch error:', error?.message || error);
-          if (retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return fetchMetadataWithRetry(retries - 1);
-          }
-          throw error;
-        }
-      };
-
-      const metadata = await fetchMetadataWithRetry();
-
-      // Enhanced collection verification with more flexible checks
-      const collectionKey = metadataAccount.collection?.key.toString();
-      console.log('Collection verification:', {
-        nftMint: mintAddress,
-        collectionKey,
-        expectedCollection: POOKIE_COLLECTION_ADDRESS,
-        matches: collectionKey === POOKIE_COLLECTION_ADDRESS,
-        metadataName: metadataAccount.name.toString()
-      });
-
-      // More robust Pookie verification:
-      // 1. Check collection address OR
-      // 2. Check if name contains "Pookie" OR
-      // 3. Check for creator address match if creator is defined
-      const isPookieByCollection = collectionKey === POOKIE_COLLECTION_ADDRESS;
-      const isPookieByName = metadataAccount.name.toString().toLowerCase().includes('pookie');
+      const umi = getUmi();
+      const mintPubKey = fromWeb3JsPublicKey(new PublicKey(mintAddress));
+      const metadataAccount = await fetchMetadata(umi, mintPubKey);
       
-      // Check creators if available
-      let isPookieByCreator = false;
-      // Access creators from the extended metadata account or from metadata JSON
-      const extendedMetadata = metadataAccount as ExtendedMetadata;
-      const metadataCreators = metadata?.creators || extendedMetadata.creators || [];
-      
-      if (metadataCreators.length > 0) {
-        // Add your known creator addresses here if needed
-        const pookieCreators = [
-          // Add creator wallet addresses if known
-          POOKIE_COLLECTION_ADDRESS, // Using collection address as fallback
-        ];
-        
-        isPookieByCreator = metadataCreators.some(
-          (creator: any) => pookieCreators.includes(creator.address?.toString())
-        );
-      }
-      
-      const isPookieNFT = isPookieByCollection || isPookieByName || isPookieByCreator;
+      // Check if it's in the Pookie collection
+      collectionAddress = metadataAccount.collection?.key.toString() || null;
+      const isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS ||
+                         metadataAccount.name.toString().toLowerCase().includes('pookie');
       
       if (!isPookieNFT) {
-        console.log(`Skipping non-Pookie NFT: ${mintAddress}, name: ${metadataAccount.name.toString()}, collection: ${collectionKey}`);
+        console.log(`Not a Pookie NFT: ${mintAddress}, collection: ${collectionAddress}`);
         return null;
       }
-
-      console.log('Valid Pookie NFT found:', mintAddress);
-
-      // Construct NFT object with verified data
-      const nft: NFT = {
-        mint: mintAddress,
-        name: metadata.name || metadataAccount.name.toString(),
-        symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
-        image: metadata.image || '/images/pookie-smashin.gif', // Fallback to placeholder
-        attributes: metadata.attributes || [],
-        collectionAddress: collectionKey || POOKIE_COLLECTION_ADDRESS // Use actual collection if available
-      };
-
-      // Validate image URL
-      if (nft.image && !nft.image.startsWith('/')) {
-        try {
-          console.log('Validating image URL:', nft.image);
-          await axios.head(nft.image);
-        } catch (error) {
-          console.warn(`Invalid image URL for ${mintAddress}, using fallback`);
-          nft.image = '/images/pookie-smashin.gif';
-        }
-      }
-
-      return nft;
-
-    } catch (uriError) {
-      console.error(`Error fetching metadata URI for ${mintAddress}:`, uriError);
-      // Even if URI fetch fails, still consider it a Pookie NFT if we have signs it is
-      const isPookieByName = metadataAccount.name.toString().toLowerCase().includes('pookie');
-      const isPookieByCollection = metadataAccount.collection?.key.toString() === POOKIE_COLLECTION_ADDRESS;
       
-      if (isPookieByName || isPookieByCollection) {
-        // Return basic metadata if URI fetch fails but it's still a Pookie NFT
+      // Clean the URI to get the JSON metadata
+      const uri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
+      console.log(`Metadata URI for ${mintAddress}: ${uri}`);
+      
+      try {
+        // Fetch metadata from URI
+        const response = await axios.get(uri, { timeout: 5000 });
+        const metadata = response.data;
+        
+        return {
+          mint: mintAddress,
+          name: metadata.name || metadataAccount.name.toString(),
+          symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
+          image: metadata.image || '/images/pookie-smashin.gif', // Fallback image
+          attributes: metadata.attributes || [],
+          collectionAddress
+        };
+      } catch (uriError) {
+        console.error(`Error fetching URI for ${mintAddress}:`, uriError);
+        // Return basic metadata if we can't fetch the URI
         return {
           mint: mintAddress,
           name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
           image: '/images/pookie-smashin.gif', // Fallback image
           symbol: metadataAccount.symbol.toString() || '',
-          collectionAddress: POOKIE_COLLECTION_ADDRESS
+          collectionAddress
         };
       }
-      return null;
+    } catch (umiError) {
+      console.error(`Error using UMI for ${mintAddress}:`, umiError);
+      
+      // If we made it here but couldn't parse with UMI, 
+      // we'll count it as a potentially valid NFT without metadata
+      return {
+        mint: mintAddress,
+        name: `Pookie #${mintAddress.slice(0, 6)}`,
+        image: '/images/pookie-smashin.gif',
+        symbol: 'POOKIE',
+        collectionAddress: POOKIE_COLLECTION_ADDRESS // Assume it's in the collection
+      };
     }
-
   } catch (error) {
     console.error(`Error parsing NFT metadata for ${mintAddress}:`, error);
     return null;
@@ -245,7 +209,7 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
   console.log('Using endpoint for fetchNFTsForWallet:', endpoint);
   
   const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1500; // Slightly increased delay
+  const RETRY_DELAY = 1500;
   
   const fetchWithRetry = async (fn: () => Promise<any>, retries = 0): Promise<any> => {
     try {
