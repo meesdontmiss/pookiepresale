@@ -9,10 +9,15 @@ import PreSaleForm from '@/components/presale/presale-form'
 import PresaleStats from '@/components/presale/presale-stats'
 import { useToast } from "@/components/ui/use-toast" 
 import { playSound } from "@/hooks/use-audio"
-import { PookieSceneMobile } from "@/components/pookie-scene-mobile"
-import { MobilePresaleForm } from "@/components/mobile-presale-form"
-import { Progress } from "@/components/ui/progress"
-import { motion, AnimatePresence } from "framer-motion"
+import { Button } from "@/components/ui/button"
+import { useWallet } from "@solana/wallet-adapter-react"
+import { ArrowLeft } from "lucide-react"
+import MobilePresaleForm from "@/components/mobile-presale-form"
+import { PookieModelMobile } from "@/components/pookie-model-mobile"
+import { MobileFooter } from "@/components/mobile-footer"
+import { AnimatePresence, motion } from "framer-motion"
+import Image from "next/image"
+import { playClickSound } from "@/hooks/use-audio"
 
 // Define custom event name constant
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
@@ -179,7 +184,7 @@ export default function MobilePage() {
       {/* Presale Box */}
       <div className="w-full max-w-md bg-zinc-900/80 backdrop-blur-sm rounded-xl p-5 mb-6 border-glow shadow-glow">
         <h2 className="text-xl font-bold text-center mb-3 text-green-400 text-glow">POOKIE Presale</h2>
-        <MobilePresaleForm />
+        <PreSaleForm />
       </div>
 
       {/* Stats */}

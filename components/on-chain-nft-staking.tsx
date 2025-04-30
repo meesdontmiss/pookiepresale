@@ -25,7 +25,6 @@ import {
   StakingError
 } from '@/utils/solana-staking-client'
 import { ErrorBoundary } from 'react-error-boundary'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import axios from 'axios'
 
 // Sound paths

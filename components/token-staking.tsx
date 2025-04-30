@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { 
   Connection, 
@@ -679,7 +679,7 @@ export default function TokenStaking() {
             
             <Button
               className="w-full mt-6 bg-primary hover:bg-primary/80 text-black font-bold"
-              onClick={(e) => { e.preventDefault(); handleStakeTokens(); }}
+              onClick={handleStakeTokens}
               disabled={isStaking || stakingAmount <= 0}
             >
               {isStaking ? (

@@ -126,10 +126,10 @@ export default function PreSaleForm() {
       )}
     
       {!connected ? (
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold mb-2">Connect Wallet</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-Please connect your Solana wallet to participate.</p>
+        <div className="flex flex-col items-center space-y-4">
+          <p className="text-center text-sm text-muted-foreground">
+            Please connect your wallet using the button in the header to continue
+          </p>
         </div>
       ) : showPasswordForm ? (
         <div className="space-y-2">

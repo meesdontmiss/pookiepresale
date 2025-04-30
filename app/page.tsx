@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PookieScene } from "@/components/pookie-scene"
@@ -406,37 +405,7 @@ export default function Home() {
                 </a>
               </motion.div>
               
-              <motion.div 
-                whileHover={{ scale: 1.05 }} 
-                whileTap={{ scale: 0.95 }}
-                onClick={() => playClickSound()}
-                className="pointer-events-auto"
-              >
-                <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 h-8" />
-              </motion.div>
-
-              {/* Debug Button - only visible in development or when holding Alt key */}
-              {process.env.NODE_ENV === 'development' && (
-                <motion.div 
-                  whileHover={{ scale: 1.1 }} 
-                  whileTap={{ scale: 0.95 }}
-                  className="pointer-events-auto"
-                >
-                  <Button 
-                    className="h-8 bg-background/80 border border-gray-500 text-gray-500 hover:bg-gray-200/10"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      playClickSound();
-                      setTimeout(() => {
-                        window.location.href = '/debug';
-                      }, 10);
-                    }}
-                  >
-                    <span className="text-xs">Debug</span>
-                  </Button>
-                </motion.div>
-              )}
+              {/* WalletMultiButton removed - now in header component */}
             </div>
           </div>
         </motion.header>

@@ -1,14 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { Button } from "@/components/ui/button"
 import PasswordGate from "@/components/password-gate"
 import ContributionForm from "@/components/contribution-form"
 import { playClickSound } from "@/hooks/use-audio"
+import { useToast } from "@/components/ui/use-toast"
+import { Check, ExternalLink, Info } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import dynamic from "next/dynamic"
 
 export function MobilePresaleForm() {
-  const { connected } = useWallet()
+  const { connected, publicKey } = useWallet()
   const [isPasswordVerified, setIsPasswordVerified] = useState(false)
   const [showPresale, setShowPresale] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
@@ -126,8 +130,21 @@ export function MobilePresaleForm() {
       )}
       
       {!connected && !showPasswordForm && !showPresale && (
-        <div className="flex flex-col items-center mt-2">
-          <p className="text-xs text-muted-foreground mb-2">Connect wallet to continue</p>
+        <div className="mt-2 bg-black/30 p-2 rounded-lg border border-white/10 text-center">
+          <p className="text-xs mb-2">Connect your wallet to contribute</p>
+          <div className="flex justify-center">
+            {!connected ? (
+              <div className="flex flex-col items-center space-y-4">
+                <p className="text-center text-xs text-muted-foreground">
+                  Please connect your wallet using the button in the header to continue
+                </p>
+              </div>
+            ) : (
+              <form>
+                {/* WalletMultiButton content */}
+              </form>
+            )}
+          </div>
         </div>
       )}
     </div>

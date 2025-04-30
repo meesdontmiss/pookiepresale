@@ -216,9 +216,9 @@ export default function StakingPage() {
             className="glass p-6 rounded-lg border-glow shadow-glow"
           >
             {/* Render on-chain NFT Staking */}
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <h1 className="text-4xl font-bold text-primary mb-4">NFT Staking</h1>
-              <p className="text-xl text-muted-foreground mb-6">Connect your wallet to view and manage your staked NFTs.</p>
+            <h2 className="text-center text-2xl font-bold text-primary text-glow mb-6">NFT Staking</h2>
+            <div className="space-y-4">
+              <OnChainNftStaking />
             </div>
           </motion.div>
         </div>
