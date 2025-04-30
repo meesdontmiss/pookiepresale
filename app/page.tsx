@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PookieScene } from "@/components/pookie-scene"
@@ -405,7 +406,15 @@ export default function Home() {
                 </a>
               </motion.div>
               
-              {/* WalletMultiButton removed - now in header component */}
+              {/* WalletMultiButton */}
+              <motion.div 
+                whileHover={{ scale: 1.05 }} 
+                whileTap={{ scale: 0.95 }}
+                onClick={() => playClickSound()}
+                className="pointer-events-auto"
+              >
+                <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 h-8" />
+              </motion.div>
             </div>
           </div>
         </motion.header>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { Check, ExternalLink, Info } from "lucide-react"
@@ -127,9 +128,8 @@ export default function PreSaleForm() {
     
       {!connected ? (
         <div className="flex flex-col items-center space-y-4">
-          <p className="text-center text-sm text-muted-foreground">
-            Please connect your wallet using the button in the header to continue
-          </p>
+          <p className="text-center text-sm mb-2">Connect your wallet to participate in the presale</p>
+          <WalletMultiButton className="bg-green-500 hover:bg-green-600 text-white rounded-md h-10" />
         </div>
       ) : showPasswordForm ? (
         <div className="space-y-2">

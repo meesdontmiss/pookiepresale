@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
-import { Header } from '@/components/layout/header'
 // import "@/lib/rpc-patch"
 import "./globals.css"
 
@@ -77,7 +76,6 @@ export default function RootLayout({
       <body className="min-h-screen bg-background antialiased cursor-middle-finger">
         <WalletProvider>
           <GlobalSoundProvider />
-          <Header />
           {children}
         </WalletProvider>
       </body>

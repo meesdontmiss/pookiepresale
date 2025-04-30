@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import PasswordGate from "@/components/password-gate"
 import ContributionForm from "@/components/contribution-form"
@@ -133,17 +134,7 @@ export function MobilePresaleForm() {
         <div className="mt-2 bg-black/30 p-2 rounded-lg border border-white/10 text-center">
           <p className="text-xs mb-2">Connect your wallet to contribute</p>
           <div className="flex justify-center">
-            {!connected ? (
-              <div className="flex flex-col items-center space-y-4">
-                <p className="text-center text-xs text-muted-foreground">
-                  Please connect your wallet using the button in the header to continue
-                </p>
-              </div>
-            ) : (
-              <form>
-                {/* WalletMultiButton content */}
-              </form>
-            )}
+            <WalletMultiButton className="bg-green-500 text-white rounded-md px-3 py-1 text-xs h-8" />
           </div>
         </div>
       )}
