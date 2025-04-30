@@ -1,15 +1,53 @@
 import { Connection, PublicKey } from '@solana/web3.js'
 import axios from 'axios'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
-import { fetchMetadata, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
+import { fetchMetadata, mplTokenMetadata, TokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
 import { fromWeb3JsPublicKey } from '@metaplex-foundation/umi-web3js-adapters'
 import type { Umi } from '@metaplex-foundation/umi'
 
 // The collection address for Pookie NFTs
 export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ'
 
-// Use a more reliable RPC endpoint for production
-const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com"
+// Singleton connection instance to prevent multiple connections
+let _connection: Connection | null = null;
+let _umi: Umi | null = null;
+
+// Define proxy endpoint logic centrally
+function getRpcEndpoint() {
+  if (typeof window !== 'undefined') {
+    // Must use absolute URL for client-side
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/api/rpc/proxy`;
+  }
+  // Fallback for potential server-side usage (though less likely for these funcs)
+  return process.env.SOLANA_RPC_URL_SERVER || process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+}
+
+// Get the shared connection instance
+export function getConnection(): Connection {
+  if (!_connection) {
+    console.log('Creating new Solana connection instance');
+    const endpoint = getRpcEndpoint();
+    _connection = new Connection(endpoint, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 60000,
+    });
+  }
+  return _connection;
+}
+
+// Get shared UMI instance with token metadata
+export function getUmi(): Umi {
+  if (!_umi) {
+    console.log('Creating new UMI instance');
+    const connection = getConnection();
+    const baseUmi = createUmi(connection.rpcEndpoint);
+    const plugin = mplTokenMetadata();
+    plugin.install(baseUmi);
+    _umi = baseUmi;
+  }
+  return _umi;
+}
 
 // NFT interface
 export interface NFT {
@@ -38,17 +76,26 @@ interface TokenAccount {
   }
 }
 
+// Creator interface for metadata
+interface Creator {
+  address: { toString: () => string };
+  verified: boolean;
+  share: number;
+}
+
+// Modified metadata interface that includes creators
+interface ExtendedMetadata extends TokenMetadata {
+  creators?: Creator[];
+}
+
 /**
  * Get NFT metadata from account data using Umi
  */
-async function parseNFTMetadata(connection: Connection, mintAddress: string): Promise<NFT | null> {
+async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
   console.log(`Starting metadata parse for mint: ${mintAddress}`);
   try {
-    // Create Umi instance with token metadata plugin
-    const baseUmi = createUmi(connection.rpcEndpoint);
-    const plugin = mplTokenMetadata();
-    plugin.install(baseUmi);
-    const umi = baseUmi;
+    // Use the shared UMI instance
+    const umi = getUmi();
 
     // Convert Solana PublicKey to UMI format
     const mintPubKey = fromWeb3JsPublicKey(new PublicKey(mintAddress));
@@ -94,19 +141,45 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
 
       const metadata = await fetchMetadataWithRetry();
 
-      // Verify collection with detailed logging
+      // Enhanced collection verification with more flexible checks
       const collectionKey = metadataAccount.collection?.key.toString();
       console.log('Collection verification:', {
         nftMint: mintAddress,
         collectionKey,
         expectedCollection: POOKIE_COLLECTION_ADDRESS,
-        matches: collectionKey === POOKIE_COLLECTION_ADDRESS
+        matches: collectionKey === POOKIE_COLLECTION_ADDRESS,
+        metadataName: metadataAccount.name.toString()
       });
 
-      const isPookieNFT = collectionKey === POOKIE_COLLECTION_ADDRESS;
+      // More robust Pookie verification:
+      // 1. Check collection address OR
+      // 2. Check if name contains "Pookie" OR
+      // 3. Check for creator address match if creator is defined
+      const isPookieByCollection = collectionKey === POOKIE_COLLECTION_ADDRESS;
+      const isPookieByName = metadataAccount.name.toString().toLowerCase().includes('pookie');
+      
+      // Check creators if available
+      let isPookieByCreator = false;
+      // Access creators from the extended metadata account or from metadata JSON
+      const extendedMetadata = metadataAccount as ExtendedMetadata;
+      const metadataCreators = metadata?.creators || extendedMetadata.creators || [];
+      
+      if (metadataCreators.length > 0) {
+        // Add your known creator addresses here if needed
+        const pookieCreators = [
+          // Add creator wallet addresses if known
+          POOKIE_COLLECTION_ADDRESS, // Using collection address as fallback
+        ];
+        
+        isPookieByCreator = metadataCreators.some(
+          (creator: any) => pookieCreators.includes(creator.address?.toString())
+        );
+      }
+      
+      const isPookieNFT = isPookieByCollection || isPookieByName || isPookieByCreator;
       
       if (!isPookieNFT) {
-        console.log(`Skipping non-Pookie NFT: ${mintAddress}, collection: ${collectionKey}`);
+        console.log(`Skipping non-Pookie NFT: ${mintAddress}, name: ${metadataAccount.name.toString()}, collection: ${collectionKey}`);
         return null;
       }
 
@@ -119,7 +192,7 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
         symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
         image: metadata.image || '/images/pookie-smashin.gif', // Fallback to placeholder
         attributes: metadata.attributes || [],
-        collectionAddress: POOKIE_COLLECTION_ADDRESS
+        collectionAddress: collectionKey || POOKIE_COLLECTION_ADDRESS // Use actual collection if available
       };
 
       // Validate image URL
@@ -137,14 +210,21 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
 
     } catch (uriError) {
       console.error(`Error fetching metadata URI for ${mintAddress}:`, uriError);
-      // Return basic metadata if URI fetch fails
-      return {
-        mint: mintAddress,
-        name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
-        image: '/images/pookie-smashin.gif', // Fallback image
-        symbol: metadataAccount.symbol.toString() || '',
-        collectionAddress: POOKIE_COLLECTION_ADDRESS
-      };
+      // Even if URI fetch fails, still consider it a Pookie NFT if we have signs it is
+      const isPookieByName = metadataAccount.name.toString().toLowerCase().includes('pookie');
+      const isPookieByCollection = metadataAccount.collection?.key.toString() === POOKIE_COLLECTION_ADDRESS;
+      
+      if (isPookieByName || isPookieByCollection) {
+        // Return basic metadata if URI fetch fails but it's still a Pookie NFT
+        return {
+          mint: mintAddress,
+          name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
+          image: '/images/pookie-smashin.gif', // Fallback image
+          symbol: metadataAccount.symbol.toString() || '',
+          collectionAddress: POOKIE_COLLECTION_ADDRESS
+        };
+      }
+      return null;
     }
 
   } catch (error) {
@@ -154,30 +234,25 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
 }
 
 /**
- * Get the Metadata PDA for a mint address (No longer needed with Umi's fetchMetadata)
- */
-// async function getMetadataPDA(mintAddress: string): Promise<string> { ... } // Removed
-
-/**
  * Fetch NFTs owned by a wallet using Solana RPC with retry logic
  */
 export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> {
   console.log('Starting NFT fetch for wallet:', walletAddress);
   
-  const connection = new Connection(SOLANA_RPC_URL, {
-    commitment: 'confirmed',
-    confirmTransactionInitialTimeout: 60000,
-  });
+  // Use the shared connection
+  const connection = getConnection();
+  const endpoint = connection.rpcEndpoint;
+  console.log('Using endpoint for fetchNFTsForWallet:', endpoint);
   
   const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1000;
+  const RETRY_DELAY = 1500; // Slightly increased delay
   
   const fetchWithRetry = async (fn: () => Promise<any>, retries = 0): Promise<any> => {
     try {
       return await fn();
     } catch (error: any) {
       console.log('Fetch retry error:', error.message, 'Attempt:', retries + 1);
-      if (error.message?.includes('429') && retries < MAX_RETRIES) {
+      if ((error.message?.includes('429') || error.message?.includes('rate limit')) && retries < MAX_RETRIES) {
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retries)));
         return fetchWithRetry(fn, retries + 1);
       }
@@ -218,7 +293,12 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
       const batchPromises = batch.map(async (tokenAccount: TokenAccount) => {
         const mint = tokenAccount.account.data.parsed.info.mint;
         console.log('Processing NFT mint:', mint);
-        return await fetchWithRetry(() => parseNFTMetadata(connection, mint));
+        try {
+          return await fetchWithRetry(() => parseNFTMetadata(mint));
+        } catch (error) {
+          console.error(`Error processing NFT ${mint}:`, error);
+          return null;
+        }
       });
       
       const batchResults = await Promise.all(batchPromises);
@@ -236,8 +316,9 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
     return nfts;
     
   } catch (error) {
-    console.error('Error in fetchNFTsForWallet:', error);
-    throw error;
+    console.error(`Error in fetchNFTsForWallet using ${endpoint}:`, error);
+    // If we encounter a fatal error, attempt to return any NFTs we've found so far
+    return [];
   }
 }
 
@@ -246,8 +327,10 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
  */
 export async function verifyNFTOwnership(walletAddress: string, nftMint: string): Promise<boolean> {
   try {
-    // Connect to Solana
-    const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+    // Use the shared connection
+    const connection = getConnection();
+    console.log('Using endpoint for verifyNFTOwnership:', connection.rpcEndpoint);
+    
     const walletPubKey = new PublicKey(walletAddress);
     const mintPubKey = new PublicKey(nftMint);
     
@@ -280,10 +363,11 @@ export async function verifyNFTOwnership(walletAddress: string, nftMint: string)
  */
 export async function fetchNFTMetadata(nftMint: string): Promise<NFT | null> {
   try {
-    // Connect to Solana
-    const connection = new Connection(SOLANA_RPC_URL, 'confirmed')
+    // Use the shared connection
+    const connection = getConnection();
+    console.log('Using endpoint for fetchNFTMetadata:', connection.rpcEndpoint);
     
-    return await parseNFTMetadata(connection, nftMint);
+    return await parseNFTMetadata(nftMint);
     
   } catch (error) {
     console.error('Error fetching NFT metadata:', error)

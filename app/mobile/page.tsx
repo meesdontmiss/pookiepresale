@@ -4,20 +4,12 @@ import { Suspense } from 'react'
 import { useState, useEffect } from "react"
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { TwitterIcon, MessageCircleIcon } from 'lucide-react'
 import PreSaleForm from '@/components/presale/presale-form'
 import PresaleStats from '@/components/presale/presale-stats'
 import { useToast } from "@/components/ui/use-toast" 
 import { playSound } from "@/hooks/use-audio"
-import { Button } from "@/components/ui/button"
-import { useWallet } from "@solana/wallet-adapter-react"
-import { ArrowLeft } from "lucide-react"
-import MobilePresaleForm from "@/components/mobile-presale-form"
-import { PookieModelMobile } from "@/components/pookie-model-mobile"
-import { MobileFooter } from "@/components/mobile-footer"
-import { AnimatePresence, motion } from "framer-motion"
-import Image from "next/image"
-import { playClickSound } from "@/hooks/use-audio"
 
 // Define custom event name constant
 const PROGRESS_UPDATE_EVENT = 'pookie-progress-update';
@@ -165,6 +157,7 @@ export default function MobilePage() {
           <h1 className="text-2xl font-bold text-green-400 text-glow">$POOKIE</h1>
         </div>
         <div className="flex items-center gap-2">
+          <WalletMultiButton className="bg-green-500 text-white rounded-md px-3 py-1 h-8 text-xs" />
           <Link 
             href="/"
             className="text-sm text-green-400 underline"

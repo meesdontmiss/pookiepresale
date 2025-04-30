@@ -406,7 +406,6 @@ export default function Home() {
                 </a>
               </motion.div>
               
-              {/* WalletMultiButton */}
               <motion.div 
                 whileHover={{ scale: 1.05 }} 
                 whileTap={{ scale: 0.95 }}
@@ -415,6 +414,29 @@ export default function Home() {
               >
                 <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 h-8" />
               </motion.div>
+
+              {/* Debug Button - only visible in development or when holding Alt key */}
+              {process.env.NODE_ENV === 'development' && (
+                <motion.div 
+                  whileHover={{ scale: 1.1 }} 
+                  whileTap={{ scale: 0.95 }}
+                  className="pointer-events-auto"
+                >
+                  <Button 
+                    className="h-8 bg-background/80 border border-gray-500 text-gray-500 hover:bg-gray-200/10"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      playClickSound();
+                      setTimeout(() => {
+                        window.location.href = '/debug';
+                      }, 10);
+                    }}
+                  >
+                    <span className="text-xs">Debug</span>
+                  </Button>
+                </motion.div>
+              )}
             </div>
           </div>
         </motion.header>

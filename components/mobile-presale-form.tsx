@@ -1,19 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import PasswordGate from "@/components/password-gate"
 import ContributionForm from "@/components/contribution-form"
 import { playClickSound } from "@/hooks/use-audio"
-import { useToast } from "@/components/ui/use-toast"
-import { Check, ExternalLink, Info } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import dynamic from "next/dynamic"
 
 export function MobilePresaleForm() {
-  const { connected, publicKey } = useWallet()
+  const { connected } = useWallet()
   const [isPasswordVerified, setIsPasswordVerified] = useState(false)
   const [showPresale, setShowPresale] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)

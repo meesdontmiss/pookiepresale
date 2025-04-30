@@ -11,7 +11,10 @@ import {
   Commitment,
   Signer,
   TransactionSignature,
-  ComputeBudgetProgram
+  ComputeBudgetProgram,
+  GetLatestBlockhashConfig,
+  RpcResponseAndContext,
+  SignatureResult
 } from '@solana/web3.js';
 import { 
   TOKEN_PROGRAM_ID,
@@ -21,7 +24,7 @@ import {
   getMint,
   ASSOCIATED_TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
-import { BN } from 'bn.js';
+import BN from 'bn.js';
 import { Buffer } from 'buffer';
 
 // Constants
@@ -137,7 +140,7 @@ export async function ensureTokenAccount(
       await getAccount(connection, tokenAccount);
     } catch (error) {
       // If the account doesn't exist, create it
-      console.log('Creating token account for mint:', mintAddress.toString());
+      console.log(`Creating token account for mint: ${mintAddress.toString()}`);
       transaction.add(
         createAssociatedTokenAccountInstruction(
           walletAddress,
@@ -165,9 +168,9 @@ export async function createStakeNftTransaction(
 ): Promise<Transaction> {
   try {
     // Validate inputs
-    if (!connection) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!wallet) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!nftMint) throw new Error(StakingError.MissingEnvironmentVariable);
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+    if (!nftMint) throw new Error('NFT mint public key is required');
 
     // Verify wallet has sufficient SOL for the transaction
     if (!await hasEnoughSol(connection, wallet)) {
@@ -176,80 +179,70 @@ export async function createStakeNftTransaction(
 
     // Check if NFT is already staked
     if (await isNftStaked(connection, wallet, nftMint)) {
-      throw new Error(StakingError.UnknownError);
+      throw new Error('NFT is already staked.');
     }
 
     // Derive required accounts
-    const [stakingAccount] = await PublicKey.findProgramAddress(
-      [Buffer.from('staking'), wallet.toBuffer(), nftMint.toBuffer()],
-      STAKING_PROGRAM_ID
-    );
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
 
     const userNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
-      wallet,
-      false
+      wallet
     );
 
+    // Find program authority PDA
+    const [programAuthority] = await findProgramAuthority();
+    
+    // Get or create the program's NFT token account
     const programNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
-      stakingAccount,
+      programAuthority,
       true
     );
 
-    // Create transaction
+    // Initialize transaction
     const transaction = new Transaction();
-
-    // Add compute budget instruction to increase compute units if needed
-    transaction.add(
-      ComputeBudgetProgram.setComputeUnitLimit({
-        units: 300000, // Adjust based on program needs
-      })
-    );
-
-    // Check if the program's token account exists, if not create it
-    try {
-      await connection.getTokenAccountBalance(programNftTokenAccount);
-    } catch (error) {
-      // Account doesn't exist, create it
+    
+    // Check if program's NFT token account exists, if not add instruction to create it
+    const programTokenAccountInfo = await connection.getAccountInfo(programNftTokenAccount);
+    if (!programTokenAccountInfo) {
       transaction.add(
         createAssociatedTokenAccountInstruction(
           wallet,
           programNftTokenAccount,
-          stakingAccount,
+          programAuthority,
           nftMint
         )
       );
     }
 
-    // Create the stake instruction
-    const stakeInstruction = new TransactionInstruction({
+    // Instruction data
+    const instructionData = Buffer.from([StakingInstruction.StakeNft]);
+
+    // Add stake instruction
+    transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: stakingAccount, isSigner: false, isWritable: true },
         { pubkey: userNftTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: nftMint, isSigner: false, isWritable: false },
+        { pubkey: stakingAccount, isSigner: false, isWritable: true },
+        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: programAuthority, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
-      data: Buffer.from([0]), // '0' represents the stake instruction
-    });
-
-    transaction.add(stakeInstruction);
-
-    // Add recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = wallet;
+      data: instructionData,
+    }));
 
     return transaction;
+
   } catch (error) {
-    if (error instanceof Error) throw error;
-    console.error('Error creating stake transaction:', error);
+    console.error('Error creating stake NFT transaction:', error);
+    if (error instanceof Error && Object.values(StakingError).includes(error.message as StakingError)) {
+      throw error; 
+    }
     throw new Error(StakingError.UnknownError);
   }
 }
@@ -264,9 +257,9 @@ export async function createUnstakeNftTransaction(
 ): Promise<Transaction> {
   try {
     // Validate inputs
-    if (!connection) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!wallet) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!nftMint) throw new Error(StakingError.MissingEnvironmentVariable);
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+    if (!nftMint) throw new Error('NFT mint public key is required');
 
     // Verify wallet has sufficient SOL for the transaction
     if (!await hasEnoughSol(connection, wallet)) {
@@ -275,70 +268,61 @@ export async function createUnstakeNftTransaction(
 
     // Check if NFT is actually staked
     if (!await isNftStaked(connection, wallet, nftMint)) {
-      throw new Error(StakingError.UnknownError);
+      throw new Error('NFT is not staked.');
     }
 
     // Derive required accounts
-    const [stakingAccount] = await PublicKey.findProgramAddress(
-      [Buffer.from('staking'), wallet.toBuffer(), nftMint.toBuffer()],
-      STAKING_PROGRAM_ID
-    );
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
+    const [programAuthority] = await findProgramAuthority();
 
     const userNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
-      wallet,
-      false
+      wallet
     );
 
     const programNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
-      stakingAccount,
+      programAuthority,
       true
     );
 
-    // Create transaction
+    // Instruction data
+    const instructionData = Buffer.from([StakingInstruction.UnstakeNft]);
+
+    // Initialize transaction
     const transaction = new Transaction();
 
-    // Add compute budget instruction to increase compute units if needed
-    transaction.add(
-      ComputeBudgetProgram.setComputeUnitLimit({
-        units: 300000, // Adjust based on program needs
-      })
-    );
+    // Ensure user has NFT token account (should exist if they staked, but check)
+    await ensureTokenAccount(connection, wallet, nftMint, transaction); 
 
-    // Create the unstake instruction
-    const unstakeInstruction = new TransactionInstruction({
+    // Add unstake instruction
+    transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: stakingAccount, isSigner: false, isWritable: true },
         { pubkey: userNftTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: nftMint, isSigner: false, isWritable: false },
+        { pubkey: stakingAccount, isSigner: false, isWritable: true },
+        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: programAuthority, isSigner: false, isWritable: false },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
-      data: Buffer.from([1]), // '1' represents the unstake instruction
-    });
-
-    transaction.add(unstakeInstruction);
-
-    // Add recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = wallet;
+      data: instructionData,
+    }));
 
     return transaction;
+
   } catch (error) {
-    if (error instanceof Error) throw error;
-    console.error('Error creating unstake transaction:', error);
+    console.error('Error creating unstake NFT transaction:', error);
+    if (error instanceof Error && Object.values(StakingError).includes(error.message as StakingError)) {
+      throw error; 
+    }
     throw new Error(StakingError.UnknownError);
   }
 }
 
 /**
- * Create a transaction to claim rewards for a staked NFT
+ * Create a transaction to claim staking rewards
  */
 export async function createClaimRewardsTransaction(
   connection: Connection,
@@ -347,102 +331,75 @@ export async function createClaimRewardsTransaction(
 ): Promise<Transaction> {
   try {
     // Validate inputs
-    if (!connection) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!wallet) throw new Error(StakingError.MissingEnvironmentVariable);
-    if (!nftMint) throw new Error(StakingError.MissingEnvironmentVariable);
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+    if (!nftMint) throw new Error('NFT mint public key is required');
 
     // Verify wallet has sufficient SOL for the transaction
     if (!await hasEnoughSol(connection, wallet)) {
       throw new Error(StakingError.InsufficientFunds);
     }
 
-    // Check if NFT is staked
+    // Check if NFT is staked (needed to claim rewards)
     if (!await isNftStaked(connection, wallet, nftMint)) {
-      throw new Error(StakingError.UnknownError);
+      throw new Error('NFT must be staked to claim rewards.');
     }
 
     // Get staking info to check if there are rewards to claim
     const stakingInfo = await getStakingInfo(connection, wallet, nftMint);
     if (stakingInfo.currentReward <= 0) {
-      throw new Error(StakingError.UnknownError);
+      throw new Error('No rewards available to claim.');
     }
 
     // Derive required accounts
-    const [stakingAccount] = await PublicKey.findProgramAddress(
-      [Buffer.from('staking'), wallet.toBuffer(), nftMint.toBuffer()],
-      STAKING_PROGRAM_ID
-    );
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
+    const [programAuthority] = await findProgramAuthority();
 
-    const userRewardsTokenAccount = await getAssociatedTokenAddress(
+    // Get user's token account for the reward mint
+    const userRewardTokenAccount = await getAssociatedTokenAddress(
       REWARDS_TOKEN_MINT,
-      wallet,
-      false
+      wallet
     );
 
-    const treasuryTokenAccount = await getAssociatedTokenAddress(
-      REWARDS_TOKEN_MINT,
-      REWARDS_TREASURY,
-      true
-    );
-
-    // Create transaction
+    // Initialize transaction
     const transaction = new Transaction();
 
-    // Add compute budget instruction to increase compute units if needed
-    transaction.add(
-      ComputeBudgetProgram.setComputeUnitLimit({
-        units: 300000, // Adjust based on program needs
-      })
-    );
+    // Ensure user has the reward token account
+    await ensureTokenAccount(connection, wallet, REWARDS_TOKEN_MINT, transaction);
 
-    // Check if the user's token account exists, if not create it
-    try {
-      await connection.getTokenAccountBalance(userRewardsTokenAccount);
-    } catch (error) {
-      // Account doesn't exist, create it
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-          wallet,
-          userRewardsTokenAccount,
-          wallet,
-          REWARDS_TOKEN_MINT
-        )
-      );
-    }
+    // Instruction data
+    const instructionData = Buffer.from([StakingInstruction.ClaimRewards]);
 
-    // Create the claim rewards instruction
-    const claimRewardsInstruction = new TransactionInstruction({
+    // Add claim rewards instruction
+    transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: wallet, isSigner: true, isWritable: true },
         { pubkey: stakingAccount, isSigner: false, isWritable: true },
-        { pubkey: userRewardsTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: treasuryTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: nftMint, isSigner: false, isWritable: false },
+        { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: true },
+        { pubkey: programAuthority, isSigner: false, isWritable: false },
         { pubkey: REWARDS_TOKEN_MINT, isSigner: false, isWritable: false },
-        { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: false },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
-      data: Buffer.from([2]), // '2' represents the claim rewards instruction
-    });
-
-    transaction.add(claimRewardsInstruction);
-
-    // Add recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = wallet;
+      data: instructionData,
+    }));
 
     return transaction;
+
   } catch (error) {
-    if (error instanceof Error) throw error;
     console.error('Error creating claim rewards transaction:', error);
+    if (error instanceof Error && Object.values(StakingError).includes(error.message as StakingError)) {
+      throw error; 
+    }
     throw new Error(StakingError.UnknownError);
   }
 }
 
 /**
- * Send a transaction and wait for confirmation
+ * Send and confirm a transaction
  */
 export async function sendTransaction(
   transaction: Transaction,
@@ -450,56 +407,58 @@ export async function sendTransaction(
   wallet: { publicKey: PublicKey, signTransaction: (tx: Transaction) => Promise<Transaction> },
   commitment: Commitment = 'confirmed'
 ): Promise<string> {
-  let signature = '';
-  let retries = 0;
-  
-  while (retries < MAX_RETRIES) {
+  let retries = MAX_RETRIES;
+  while (retries > 0) {
     try {
+      // Set priority fee
+      transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
+      transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+
+      // Get latest blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(commitment);
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+      transaction.feePayer = wallet.publicKey;
+
       // Sign the transaction
       const signedTransaction = await wallet.signTransaction(transaction);
       
       // Send the transaction
-      const sendPromise = connection.sendRawTransaction(signedTransaction.serialize());
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Transaction timeout')), TX_TIMEOUT)
-      );
+      const signature = await connection.sendRawTransaction(signedTransaction.serialize());
       
-      signature = await Promise.race([sendPromise, timeoutPromise]);
+      console.log('Transaction sent with signature:', signature);
       
-      // Wait for confirmation
+      // Confirm the transaction
       const confirmation = await connection.confirmTransaction({
         signature,
-        blockhash: transaction.recentBlockhash,
-        lastValidBlockHeight: transaction.lastValidBlockHeight
+        blockhash,
+        lastValidBlockHeight
       }, commitment);
       
       if (confirmation.value.err) {
-        throw new Error(`Transaction confirmed but failed: ${confirmation.value.err.toString()}`);
+        console.error('Transaction confirmation error:', confirmation.value.err);
+        throw new Error('Transaction failed confirmation');
       }
       
+      console.log('Transaction confirmed:', signature);
       return signature;
+
     } catch (error) {
-      retries++;
-      console.error(`Transaction attempt ${retries} failed:`, error);
-      
-      if (retries >= MAX_RETRIES) {
+      console.error(`Transaction failed (attempt ${MAX_RETRIES - retries + 1}/${MAX_RETRIES}):`, error);
+      retries--;
+      if (retries === 0) {
+        if (error instanceof Error) throw error;
         throw new Error(StakingError.TransactionFailed);
       }
-      
       // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Get new blockhash for retry
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
-  
-  return signature;
+  throw new Error(StakingError.TransactionFailed);
 }
 
 /**
- * Check if a given NFT is staked by a wallet
+ * Check if an NFT is staked by looking for the staking account PDA
  */
 export async function isNftStaked(
   connection: Connection,
@@ -507,19 +466,17 @@ export async function isNftStaked(
   nftMint: PublicKey
 ): Promise<boolean> {
   try {
-    // Derive staking account PDA
-    const [stakingAccount] = await PublicKey.findProgramAddress(
-      [Buffer.from('staking'), wallet.toBuffer(), nftMint.toBuffer()],
-      STAKING_PROGRAM_ID
-    );
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+    if (!nftMint) throw new Error('NFT mint public key is required');
 
+    // Find the staking account PDA
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
+    
     // Check if the staking account exists
     const accountInfo = await connection.getAccountInfo(stakingAccount);
-    if (!accountInfo) return false;
+    return !!accountInfo;
 
-    // Check the account data to verify it's a valid staking account
-    // This is a simplified check, real implementation would parse the account data
-    return accountInfo.owner.equals(STAKING_PROGRAM_ID) && accountInfo.data.length > 0;
   } catch (error) {
     console.error('Error checking if NFT is staked:', error);
     return false;
@@ -527,7 +484,7 @@ export async function isNftStaked(
 }
 
 /**
- * Get staking info for an NFT
+ * Get staking information for a specific NFT
  */
 export async function getStakingInfo(
   connection: Connection,
@@ -539,50 +496,51 @@ export async function getStakingInfo(
   daysStaked: number;
   currentReward: number
 }> {
+  const defaultInfo = {
+    isStaked: false,
+    stakedAt: 0,
+    daysStaked: 0,
+    currentReward: 0
+  };
+
   try {
-    // Default return value
-    const defaultInfo = {
-      isStaked: false,
-      stakedAt: 0,
-      daysStaked: 0,
-      currentReward: 0
-    };
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+    if (!nftMint) throw new Error('NFT mint public key is required');
 
     // Check if NFT is staked
-    const staked = await isNftStaked(connection, wallet, nftMint);
-    if (!staked) return defaultInfo;
+    const isStakedResult = await isNftStaked(connection, wallet, nftMint);
+    if (!isStakedResult) return defaultInfo;
 
-    // Derive staking account PDA
-    const [stakingAccount] = await PublicKey.findProgramAddress(
-      [Buffer.from('staking'), wallet.toBuffer(), nftMint.toBuffer()],
-      STAKING_PROGRAM_ID
-    );
+    // Find the staking account PDA
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
 
     // Get account info
     const accountInfo = await connection.getAccountInfo(stakingAccount);
     if (!accountInfo) return defaultInfo;
 
-    // Parse staking account data (simplified for example)
-    // In a real implementation, you would deserialize the account data based on your program's data structure
-    const dataView = new DataView(accountInfo.data.buffer);
-    
-    // Example parsing - adjust based on actual data structure
-    const stakedAt = dataView.getUint32(1, true); // Assuming staked_at timestamp is at offset 1, little endian
-    
-    // Calculate days staked
-    const currentTime = Math.floor(Date.now() / 1000);
-    const secondsStaked = currentTime - stakedAt;
-    const daysStaked = Math.floor(secondsStaked / (24 * 60 * 60));
-    
-    // Calculate current reward based on days staked and daily rate
+    // Decode account data (assuming specific layout)
+    const data = Buffer.from(accountInfo.data);
+    if (data.length < 8 + 32 + 32 + 8) {
+      console.error('Staking account data length too short to decode staked_at');
+      return { ...defaultInfo, isStaked: true };
+    }
+    const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
+    const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
+
+    // Calculate days staked and rewards
+    const now = Math.floor(Date.now() / 1000);
+    const secondsStaked = Math.max(0, now - stakedAtTimestamp);
+    const daysStaked = secondsStaked / (60 * 60 * 24);
     const currentReward = daysStaked * DAILY_REWARD_RATE;
 
     return {
       isStaked: true,
-      stakedAt,
-      daysStaked,
-      currentReward
+      stakedAt: stakedAtTimestamp,
+      daysStaked: parseFloat(daysStaked.toFixed(2)),
+      currentReward: Math.floor(currentReward)
     };
+
   } catch (error) {
     console.error('Error getting staking info:', error);
     return defaultInfo;
@@ -590,7 +548,7 @@ export async function getStakingInfo(
 }
 
 /**
- * Get token balance for an account
+ * Get token balance for a specific mint
  */
 export async function getTokenBalance(
   connection: Connection,
@@ -598,17 +556,20 @@ export async function getTokenBalance(
   mint: PublicKey
 ): Promise<number> {
   try {
-    const tokenAccount = await getAssociatedTokenAddress(mint, wallet);
+    if (!connection || !wallet || !mint) return 0;
     
-    try {
-      const balance = await connection.getTokenAccountBalance(tokenAccount);
-      return Number(balance.value.amount) / (10 ** balance.value.decimals);
-    } catch (error) {
-      // Token account doesn't exist
-      return 0;
-    }
+    const tokenAccount = await getAssociatedTokenAddress(mint, wallet);
+    const accountInfo = await getAccount(connection, tokenAccount);
+    
+    const mintInfo = await getMint(connection, mint);
+    const balance = Number(accountInfo.amount) / (10 ** mintInfo.decimals);
+    return balance;
+    
   } catch (error) {
-    console.error('Error getting token balance:', error);
+    if (error instanceof Error && (error.name === 'TokenAccountNotFoundError' || error.message.includes('could not find account'))) {
+    } else {
+        console.warn(`Warning getting token balance for mint ${mint.toString()}:`, error);
+    }
     return 0;
   }
 }
@@ -621,11 +582,15 @@ export async function hasEnoughSol(
   wallet: PublicKey
 ): Promise<boolean> {
   try {
+    if (!connection) throw new Error('Connection object is required');
+    if (!wallet) throw new Error('Wallet public key is required');
+
     const balance = await connection.getBalance(wallet);
-    const minimumBalance = 0.005 * 10 ** 9; // 0.005 SOL in lamports
+    const minimumBalance = 0.005 * 10 ** 9;
+    console.log(`Wallet balance: ${balance / (10**9)} SOL, Minimum required: ${minimumBalance / (10**9)} SOL`);
     return balance >= minimumBalance;
   } catch (error) {
-    console.error('Error checking SOL balance:', error);
+    console.error(`Error checking SOL balance using endpoint ${connection.rpcEndpoint}:`, error);
     return false;
   }
 } 

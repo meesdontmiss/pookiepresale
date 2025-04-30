@@ -25,6 +25,7 @@ import {
   StakingError
 } from '@/utils/solana-staking-client'
 import { ErrorBoundary } from 'react-error-boundary'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import axios from 'axios'
 
 // Sound paths
@@ -101,7 +102,20 @@ export default function OnChainNftStaking() {
     try {
       // Fetch base NFT data (mint, name, symbol, uri in image field)
       const walletAddress = publicKey.toString()
+      console.log("Attempting to fetch NFTs for wallet:", walletAddress);
+      
+      // Set a timeout to show a message if fetching takes too long
+      const timeoutId = setTimeout(() => {
+        toast({
+          title: "Taking a while to load NFTs",
+          description: "The Solana network might be experiencing high traffic. Please wait...",
+          duration: 5000,
+        });
+      }, 8000);
+      
+      // Pass wallet address only - no need to create new connections
       const baseNfts = await fetchNFTsForWallet(walletAddress)
+      clearTimeout(timeoutId);
       
       console.log("Base NFTs fetched (URI in image field):", baseNfts);
 
@@ -110,47 +124,58 @@ export default function OnChainNftStaking() {
         setWalletNfts([])
         setStakedNfts([])
         setTotalRewards(0)
-        // No need for setIsLoading/setInitialLoading here, finally block handles it
-        // Removed: setInitialLoading(false)
-        // Removed: setIsLoading(false)
+        setError("No Pookie NFTs found in this wallet. If you believe this is an error, please try refreshing.");
         return // Early return is okay, finally will still run
       }
       
-      // Check staking status for each NFT
-      const nftsWithStakingStatus: StakedNFT[] = await Promise.all(
-        baseNfts.map(async (nft) => {
-          try {
-            const stakingInfo = await getStakingInfo(
-              connection, 
-              publicKey,
-              new PublicKey(nft.mint)
-            )
-            
-            return {
-              ...nft,
-              isStaked: stakingInfo.isStaked,
-              stakedAt: stakingInfo.stakedAt,
-              daysStaked: stakingInfo.daysStaked,
-              currentReward: stakingInfo.currentReward,
-              metadataFetched: false, // Mark as not fetched yet
-            }
-          } catch (error) {
-            console.error(`Error getting staking info for ${nft.mint}:`, error)
-            // Add mint to error object if possible
-            if (error instanceof Error) {
-               (error as any).mint = nft.mint; 
-            }
-            // Propagate error to allow Promise.all to handle potential rate limits gracefully
-            // Consider if you want partial data or full failure on stakingInfo error
-            // For now, return base NFT assuming not staked on error
-            return {
-              ...nft,
-              isStaked: false,
-              metadataFetched: false, 
-            }
+      // Check staking status for each NFT with better error handling
+      const nftsWithStakingStatusPromises = baseNfts.map(async (nft) => {
+        try {
+          // Use the existing connection from useConnection hook
+          const stakingInfo = await getStakingInfo(
+            connection, 
+            publicKey,
+            new PublicKey(nft.mint)
+          )
+          
+          return {
+            ...nft,
+            isStaked: stakingInfo.isStaked,
+            stakedAt: stakingInfo.stakedAt,
+            daysStaked: stakingInfo.daysStaked,
+            currentReward: stakingInfo.currentReward,
+            metadataFetched: false, // Mark as not fetched yet
           }
-        })
-      )
+        } catch (error) {
+          console.error(`Error getting staking info for ${nft.mint}:`, error)
+          // Add mint to error object if possible
+          if (error instanceof Error) {
+             (error as any).mint = nft.mint; 
+          }
+          // Don't propagate the error, just return the NFT without staking info
+          return {
+            ...nft,
+            isStaked: false,
+            metadataFetched: false,
+            // Add flag to indicate staking info fetch failed
+            stakingInfoError: true
+          }
+        }
+      });
+      
+      // Use Promise.allSettled to handle partial failures
+      const stakingResults = await Promise.allSettled(nftsWithStakingStatusPromises);
+      const nftsWithStakingStatus: StakedNFT[] = stakingResults
+        .filter(result => result.status === 'fulfilled')
+        .map(result => (result as PromiseFulfilledResult<StakedNFT>).value);
+      
+      // Log any rejected promises
+      const rejectedResults = stakingResults.filter(result => result.status === 'rejected');
+      if (rejectedResults.length > 0) {
+        console.error(`${rejectedResults.length} NFTs failed to get staking status:`, 
+          rejectedResults.map(result => (result as PromiseRejectedResult).reason)
+        );
+      }
       
       console.log("NFTs with staking status (pre-metadata fetch):", nftsWithStakingStatus);
 
@@ -162,25 +187,42 @@ export default function OnChainNftStaking() {
       setWalletNfts(unstakedBase);
       setStakedNfts(stakedBase);
       setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
-      
-      // Removed: setIsLoading(false); // Base data loaded - handled in finally
-      // Removed: setInitialLoading(false); - handled in finally
 
       // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
       const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => {
+         if (nftsToUpdate.length === 0) return;
+         
          // Create a stable copy of the current state to update from
          let currentNfts = [...nftsToUpdate]; 
-         const updatedNftPromises = currentNfts.map(async (nft, index) => {
-           const fullDataNft = await fetchMetadataViaProxy(nft);
-           // Update the specific NFT in the copied array
-           currentNfts[index] = fullDataNft; 
-           // Update state progressively if needed, or just once at the end
-           // For simplicity, we update once after Promise.all
-           return fullDataNft; 
-         });
-    
-         const finalUpdatedNfts = await Promise.all(updatedNftPromises);
-         setStateAction(finalUpdatedNfts); // Update state with the complete list
+         
+         // Process NFTs in smaller batches to prevent rate limits
+         const batchSize = 2;
+         for (let i = 0; i < currentNfts.length; i += batchSize) {
+           const batch = currentNfts.slice(i, i + batchSize);
+           
+           // Process this batch
+           const updatedBatchPromises = batch.map(async (nft, batchIndex) => {
+             try {
+               const fullDataNft = await fetchMetadataViaProxy(nft);
+               // Update the specific NFT in the copied array
+               currentNfts[i + batchIndex] = fullDataNft;
+               return fullDataNft;
+             } catch (error) {
+               console.error(`Error fetching metadata for NFT ${nft.mint}:`, error);
+               // Return the original NFT if metadata fetch fails
+               return nft;
+             }
+           });
+           
+           await Promise.all(updatedBatchPromises);
+           // Update state progressively after each batch
+           setStateAction([...currentNfts]);
+           
+           // Small delay between batches
+           if (i + batchSize < currentNfts.length) {
+             await new Promise(resolve => setTimeout(resolve, 500));
+           }
+         }
        };
 
       // Fetch for unstaked and staked NFTs concurrently
@@ -193,29 +235,22 @@ export default function OnChainNftStaking() {
 
     } catch (error) {
       console.error('Error fetching wallet data:', error)
-      // Check for specific errors like rate limits if needed
+      // Check for specific errors like rate limits
       if (error instanceof Error && (error as any).mint) {
          setError(`Failed to load staking info for ${ (error as any).mint}. Rate limited?`);
       } else if (axios.isAxiosError(error) && error.response?.status === 429) {
-         setError('RPC rate limit hit. Please wait and refresh.');
+        setError("Rate limit exceeded. Please try again in a moment.");
+      } else {
+        setError("Failed to load NFTs. Please try refreshing.");
       }
-       else {
-        setError('Failed to load NFT data. Please try refreshing.');
-      }
-      toast({
-        title: "Error loading NFTs",
-        description: error instanceof Error ? error.message : "An unknown error occurred.",
-        variant: "destructive"
-      })
+      // Still keep any already loaded NFTs
+      // (don't reset wallet/staked NFTs here)
     } finally {
-      // Ensure loading states are always reset
-      setIsLoading(false);
-      setInitialLoading(false);
-      isFetchingRef.current = false; // Clear fetching flag
-      // Keep metadataLoading state as is, it's managed within fetchMetadataViaProxy
+      setIsLoading(false)
+      setInitialLoading(false)
+      isFetchingRef.current = false
     }
-  // Add dependencies for useCallback
-  }, [publicKey, connection]); 
+  }, [publicKey, connection, toast])
 
   // Update refs when wallet state changes - Fetch data here
   useEffect(() => {
@@ -264,32 +299,92 @@ export default function OnChainNftStaking() {
   // Function to fetch full metadata via the backend proxy
   const fetchMetadataViaProxy = async (nft: StakedNFT): Promise<StakedNFT> => {
     if (nft.metadataFetched) return nft;
-    if (!nft.image || !nft.image.startsWith('http')) return { ...nft, metadataFetched: true }; 
-
-    const uri = nft.image; 
+    
     setMetadataLoading(prev => ({ ...prev, [nft.mint]: true }));
-    console.log(`[fetchMetadataViaProxy] Attempting to fetch for mint ${nft.mint} via proxy. URI: ${uri}`); // <-- Added log
+    console.log(`[fetchMetadataViaProxy] Fetching metadata for mint ${nft.mint}`);
 
     try {
-      const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(uri)}`);
-      const fullMetadata = response.data;
-      return {
-          ...nft, 
-          name: fullMetadata.name || nft.name, 
-          image: fullMetadata.image || '/images/pookie-smashin.gif', 
+      // Two approaches to get metadata:
+      // 1. If NFT has a valid image URI, use it directly
+      // 2. Otherwise use the NFT mint to fetch metadata
+      
+      let fullMetadata;
+      if (nft.image && nft.image.startsWith('http')) {
+        // Approach 1: Fetch via image URI (which is actually metadata URI in baseNFT)
+        console.log(`[fetchMetadataViaProxy] Using URI method for ${nft.mint}. URI: ${nft.image}`);
+        try {
+          const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(nft.image)}`, {
+            timeout: 10000 // 10s timeout
+          });
+          fullMetadata = response.data;
+        } catch (uriError) {
+          console.error(`[fetchMetadataViaProxy] URI method failed for ${nft.mint}:`, uriError);
+          // Fall back to mint method if URI method fails
+          fullMetadata = null;
+        }
+      }
+      
+      // If URI method failed or wasn't applicable, try direct mint method
+      if (!fullMetadata) {
+        console.log(`[fetchMetadataViaProxy] Using mint method for ${nft.mint}`);
+        try {
+          const response = await axios.get(`/api/nft/metadata?mint=${nft.mint}`, {
+            timeout: 10000 // 10s timeout
+          });
+          fullMetadata = response.data;
+        } catch (mintError) {
+          console.error(`[fetchMetadataViaProxy] Mint method failed for ${nft.mint}:`, mintError);
+          // Both methods failed, throw error to use fallback
+          throw new Error("Failed to fetch metadata using both methods");
+        }
+      }
+      
+      // Use the fetched metadata to enhance the NFT object
+      if (fullMetadata) {
+        // Validate image URL if present
+        let imageUrl = fullMetadata.image || nft.image || '/images/pookie-smashin.gif';
+        
+        // Ensure image URL is valid
+        if (imageUrl && imageUrl.startsWith('http')) {
+          try {
+            // Simple validation - just check if URL is accessible
+            await axios.head(imageUrl, { timeout: 3000 });
+          } catch (imageError) {
+            console.warn(`[fetchMetadataViaProxy] Invalid image URL for ${nft.mint}: ${imageUrl}`);
+            imageUrl = '/images/pookie-smashin.gif';
+          }
+        } else if (!imageUrl.startsWith('/')) {
+          // If not http:// or /, assume invalid and use fallback
+          imageUrl = '/images/pookie-smashin.gif';
+        }
+
+        return {
+          ...nft,
+          name: fullMetadata.name || nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
+          image: imageUrl,
           description: fullMetadata.description || '',
           attributes: fullMetadata.attributes || [],
           metadataFetched: true,
         };
+      }
+      
+      // Fallback with what we have
+      return {
+        ...nft,
+        metadataFetched: true,
+        // Keep existing values, just mark as fetched
+      };
     } catch (error) {
-       console.error(`[fetchMetadataViaProxy] Failed to fetch metadata for ${nft.mint} from proxy:`, error); // <-- Enhanced log
-       return { 
-           ...nft, 
-           image: '/images/pookie-smashin.gif',
-           metadataFetched: true 
-       };
+      console.error(`[fetchMetadataViaProxy] Failed to fetch metadata for ${nft.mint}:`, error);
+      // Return basic NFT with fallback image
+      return { 
+        ...nft, 
+        name: nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
+        image: '/images/pookie-smashin.gif',
+        metadataFetched: true 
+      };
     } finally {
-       setMetadataLoading(prev => ({ ...prev, [nft.mint]: false }));
+      setMetadataLoading(prev => ({ ...prev, [nft.mint]: false }));
     }
   };
   
