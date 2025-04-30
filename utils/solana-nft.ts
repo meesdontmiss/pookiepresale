@@ -237,7 +237,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         return {
           mint: mintAddress,
           name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
-          image: `/images/pookie-nft-${mintAddress.slice(0, 8)}.png`,
+          image: '/images/pookie-smashin.gif',
           symbol: metadataAccount.symbol.toString() || '',
           collectionAddress
         };

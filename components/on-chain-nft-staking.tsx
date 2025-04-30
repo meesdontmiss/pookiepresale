@@ -190,49 +190,11 @@ export default function OnChainNftStaking() {
       setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
 
       // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
-      const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => {
-         if (nftsToUpdate.length === 0) return;
-         
-         // Create a stable copy of the current state to update from
-         let currentNfts = [...nftsToUpdate]; 
-         
-         // Process NFTs in smaller batches to prevent rate limits
-         const batchSize = 2;
-         for (let i = 0; i < currentNfts.length; i += batchSize) {
-           const batch = currentNfts.slice(i, i + batchSize);
-           
-           // Process this batch
-           const updatedBatchPromises = batch.map(async (nft, batchIndex) => {
-             try {
-               const fullDataNft = await fetchMetadataViaProxy(nft);
-               // Update the specific NFT in the copied array
-               currentNfts[i + batchIndex] = fullDataNft;
-               return fullDataNft;
-             } catch (error) {
-               console.error(`Error fetching metadata for NFT ${nft.mint}:`, error);
-               // Return the original NFT if metadata fetch fails
-               return nft;
-             }
-           });
-           
-           await Promise.all(updatedBatchPromises);
-           // Update state progressively after each batch
-           setStateAction([...currentNfts]);
-           
-           // Small delay between batches
-           if (i + batchSize < currentNfts.length) {
-             await new Promise(resolve => setTimeout(resolve, 500));
-           }
-         }
-       };
-
-      // Fetch for unstaked and staked NFTs concurrently
-      await Promise.all([
-        fetchAndUpdateMetadata(unstakedBase, setWalletNfts),
-        fetchAndUpdateMetadata(stakedBase, setStakedNfts)
-      ]);
+      // REMOVED: Redundant metadata fetching logic removed. fetchNFTsForWallet now handles this.
+      // const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => { ... };
+      // await Promise.all([ fetchAndUpdateMetadata(...) ]);
       
-      console.log("Finished fetching full metadata via proxy.");
+      console.log("Finished processing NFT data from fetchNFTsForWallet.");
 
     } catch (error) {
       console.error('Error fetching wallet data:', error)
@@ -298,125 +260,12 @@ export default function OnChainNftStaking() {
   }
 
   // Function to fetch full metadata via the backend proxy
+  // REMOVED: fetchMetadataViaProxy function is no longer needed.
+  /*
   const fetchMetadataViaProxy = async (nft: StakedNFT): Promise<StakedNFT> => {
-    if (nft.metadataFetched) return nft;
-    
-    setMetadataLoading(prev => ({ ...prev, [nft.mint]: true }));
-    console.log(`[fetchMetadataViaProxy] Fetching metadata for mint ${nft.mint}`);
-
-    try {
-      // Always try mint-based retrieval first, as it's more reliable
-      let fullMetadata = null;
-      
-      try {
-        console.log(`[fetchMetadataViaProxy] Using mint method for ${nft.mint}`);
-        const response = await axios.get(`/api/nft/metadata?mint=${nft.mint}`, {
-          timeout: 15000 // 15s timeout - increased for reliability
-        });
-        fullMetadata = response.data;
-        console.log(`[fetchMetadataViaProxy] Mint method successful for ${nft.mint}`);
-      } catch (mintError) {
-        console.error(`[fetchMetadataViaProxy] Mint method failed for ${nft.mint}:`, mintError);
-        
-        // Fall back to URI method only if we have a valid URI in the image field
-        if (nft.image && nft.image.startsWith('http')) {
-          console.log(`[fetchMetadataViaProxy] Falling back to URI method for ${nft.mint}. URI: ${nft.image}`);
-          try {
-            const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(nft.image)}`, {
-              timeout: 10000 // 10s timeout
-            });
-            fullMetadata = response.data;
-            console.log(`[fetchMetadataViaProxy] URI method successful for ${nft.mint}`);
-          } catch (uriError) {
-            console.error(`[fetchMetadataViaProxy] URI method also failed for ${nft.mint}:`, uriError);
-          }
-        }
-      }
-      
-      // Extract and validate image URL from metadata
-      if (fullMetadata) {
-        // Get alternative image URLs from metadata response if available
-        const metadataAltUrls = fullMetadata.alternativeImageUrls || [];
-        console.log(`[fetchMetadataViaProxy] Found ${metadataAltUrls.length} alternative URLs from metadata`);
-        
-        // Create a prioritized list of possible image sources with the new fields
-        const possibleImageSources = [
-          // First try the new processed imageUrl field
-          fullMetadata.imageUrl,
-          // Then try alternative URLs provided by the backend
-          ...metadataAltUrls,
-          // Fall back to traditional fields
-          fullMetadata.image,
-          fullMetadata.image_url,
-          fullMetadata.imageUrl,
-          fullMetadata.imageUri,
-          fullMetadata.image_uri,
-          nft.image,
-          `/images/pookie-nft-${nft.mint.slice(0, 8)}.png`,
-          '/images/pookie-smashin.gif'
-        ].filter(Boolean); // Remove undefined/null values
-        
-        // Try each image source until we find a valid one
-        let validImageUrl = null;
-        
-        for (const imgSource of possibleImageSources) {
-          if (!imgSource) continue;
-          
-          // Skip values that are clearly not URLs
-          if (typeof imgSource !== 'string' || imgSource.length < 5) continue;
-          
-          // Handle on-chain images that might be local
-          if (imgSource.startsWith('/')) {
-            validImageUrl = imgSource;
-            console.log(`[fetchMetadataViaProxy] Using local image path: ${validImageUrl}`);
-            break;
-          }
-          
-          // Use our image proxy for external URLs to bypass CORS issues
-          if (imgSource.startsWith('http')) {
-            validImageUrl = `/api/image-proxy?url=${encodeURIComponent(imgSource)}`;
-            console.log(`[fetchMetadataViaProxy] Using image proxy for URL: ${imgSource}`);
-            break;
-          }
-        }
-        
-        // If no valid image found, use the fallback
-        if (!validImageUrl) {
-          validImageUrl = '/images/pookie-smashin.gif';
-          console.warn(`[fetchMetadataViaProxy] No valid image found for ${nft.mint}, using fallback`);
-        }
-
-        return {
-          ...nft,
-          name: fullMetadata.name || nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
-          image: validImageUrl,
-          description: fullMetadata.description || '',
-          attributes: fullMetadata.attributes || [],
-          alternativeImageUrls: metadataAltUrls, // Store alternative URLs for client-side fallback
-          metadataFetched: true,
-        };
-      }
-      
-      // If no metadata found at all, use fallbacks
-      return {
-        ...nft,
-        metadataFetched: true,
-        name: nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
-        image: `/images/pookie-nft-${nft.mint.slice(0, 8)}.png`, // Use dynamic fallback
-      };
-    } catch (error) {
-      console.error(`[fetchMetadataViaProxy] Failed to fetch metadata for ${nft.mint}:`, error);
-      // Return basic NFT with fallback image
-      return { 
-        ...nft, 
-        name: nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
-        image: `/images/pookie-nft-${nft.mint.slice(0, 8)}.png`, // Use dynamic fallback
-        metadataFetched: true 
-      };
-    } finally {
-      setMetadataLoading(prev => ({ ...prev, [nft.mint]: false }));
-    }
+    // ... entire function removed ...
   };
+  */
   
   // Manual Refresh Handler - Uses the memoized fetchWalletData
   const handleRefresh = useCallback(() => {
