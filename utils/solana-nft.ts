@@ -141,8 +141,14 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       const metadataPDAUmi = fromWeb3JsPublicKey(metadataPDA);
       const metadataAccount = await fetchMetadata(umi, metadataPDAUmi);
       
-      // Check if it's in the Pookie collection
-      collectionAddress = metadataAccount.collection?.key.toString() || null;
+      // Add error handling for undefined metadata
+      if (!metadataAccount) {
+        console.log(`No metadata found for ${mintAddress} at PDA ${metadataPDA.toString()}`);
+        return null;
+      }
+      
+      // Check if it's in the Pookie collection - with null checks
+      collectionAddress = metadataAccount.collection?.key?.toString() || null;
       const isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
       
       if (!isPookieNFT) {
