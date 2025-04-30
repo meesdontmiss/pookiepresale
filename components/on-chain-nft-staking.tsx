@@ -38,6 +38,7 @@ interface NFT extends BaseNFT {
   metadataFetched?: boolean; // Flag to check if full metadata is loaded
   // Add other potential fields from metadata JSON if needed
   description?: string;
+  pookieNumber?: string; // The NFT number extracted from name or metadata
 }
 
 // NFT staking interface with additional staking data
@@ -304,58 +305,133 @@ export default function OnChainNftStaking() {
     console.log(`[fetchMetadataViaProxy] Fetching metadata for mint ${nft.mint}`);
 
     try {
-      // Two approaches to get metadata:
-      // 1. If NFT has a valid image URI, use it directly
-      // 2. Otherwise use the NFT mint to fetch metadata
+      // Try all three methods to get metadata:
+      // 1. Use mint address directly (most reliable)
+      // 2. If NFT has a valid image URI, use it
+      // 3. Use NFT name to search if both methods above fail
       
-      let fullMetadata;
-      if (nft.image && nft.image.startsWith('http')) {
-        // Approach 1: Fetch via image URI (which is actually metadata URI in baseNFT)
+      let fullMetadata = null;
+      let errors = [];
+
+      // Method 1: Try mint method first (most reliable)
+      console.log(`[fetchMetadataViaProxy] Using mint method for ${nft.mint}`);
+      try {
+        const response = await axios.get(`/api/nft/metadata?mint=${nft.mint}`, {
+          timeout: 10000 // 10s timeout
+        });
+        fullMetadata = response.data;
+        console.log(`[fetchMetadataViaProxy] Mint method succeeded for ${nft.mint}`);
+      } catch (mintError) {
+        console.error(`[fetchMetadataViaProxy] Mint method failed for ${nft.mint}:`, mintError);
+        errors.push(mintError);
+        // Continue to next method
+      }
+      
+      // Method 2: If mint method failed and NFT has a valid URI, try URI method
+      if (!fullMetadata && nft.image && nft.image.startsWith('http')) {
         console.log(`[fetchMetadataViaProxy] Using URI method for ${nft.mint}. URI: ${nft.image}`);
         try {
           const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(nft.image)}`, {
             timeout: 10000 // 10s timeout
           });
           fullMetadata = response.data;
+          console.log(`[fetchMetadataViaProxy] URI method succeeded for ${nft.mint}`);
         } catch (uriError) {
           console.error(`[fetchMetadataViaProxy] URI method failed for ${nft.mint}:`, uriError);
-          // Fall back to mint method if URI method fails
-          fullMetadata = null;
+          errors.push(uriError);
+          // Continue to next method
         }
       }
       
-      // If URI method failed or wasn't applicable, try direct mint method
-      if (!fullMetadata) {
-        console.log(`[fetchMetadataViaProxy] Using mint method for ${nft.mint}`);
+      // Method 3: Name-based search as last resort (only if we have a name)
+      if (!fullMetadata && nft.name) {
+        console.log(`[fetchMetadataViaProxy] Using name search method for ${nft.name}`);
         try {
-          const response = await axios.get(`/api/nft/metadata?mint=${nft.mint}`, {
-            timeout: 10000 // 10s timeout
-          });
-          fullMetadata = response.data;
-        } catch (mintError) {
-          console.error(`[fetchMetadataViaProxy] Mint method failed for ${nft.mint}:`, mintError);
-          // Both methods failed, throw error to use fallback
-          throw new Error("Failed to fetch metadata using both methods");
+          // Extract number from name if it's in the format "Pookie #123"
+          const nameMatch = nft.name.match(/Pookie #(\d+)/i);
+          const pookieNumber = nameMatch ? nameMatch[1] : null;
+          
+          if (pookieNumber) {
+            // Try a direct fetch with known naming pattern
+            const knownMetadataUrl = `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.json`;
+            const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(knownMetadataUrl)}`, {
+              timeout: 10000
+            });
+            fullMetadata = response.data;
+            console.log(`[fetchMetadataViaProxy] Name search method succeeded for ${nft.name}`);
+          }
+        } catch (nameError) {
+          console.error(`[fetchMetadataViaProxy] Name search method failed for ${nft.name}:`, nameError);
+          errors.push(nameError);
         }
       }
       
       // Use the fetched metadata to enhance the NFT object
       if (fullMetadata) {
+        // Check for pookieNumber in the response or extract from name
+        let pookieNumber = fullMetadata.nftNumber || fullMetadata.pookieNumber;
+        
+        // If not provided directly, extract from name
+        if (!pookieNumber && (fullMetadata.name || nft.name)) {
+          const name = fullMetadata.name || nft.name;
+          const nameMatch = name.match(/Pookie #(\d+)/i);
+          pookieNumber = nameMatch ? nameMatch[1] : null;
+        }
+        
         // Validate image URL if present
         let imageUrl = fullMetadata.image || nft.image || '/images/pookie-smashin.gif';
         
-        // Ensure image URL is valid
-        if (imageUrl && imageUrl.startsWith('http')) {
-          try {
+        // Normalize the arweave URL format if needed
+        if (imageUrl && imageUrl.includes('arweave.net')) {
+          // Fix common issues with arweave URLs
+          if (imageUrl.includes('https://www.arweave.net/')) {
+            imageUrl = imageUrl.replace('https://www.arweave.net/', 'https://arweave.net/');
+          }
+          
+          // Handle transaction IDs that might be in the URL without proper formatting
+          if (imageUrl.match(/arweave\.net\/[a-zA-Z0-9_-]{43}/)) {
+            // URL is likely already well-formed
+          } else if (imageUrl.match(/^[a-zA-Z0-9_-]{43}$/)) {
+            // Just a transaction ID, form the full URL
+            imageUrl = `https://arweave.net/${imageUrl}`;
+          }
+        }
+        
+        // If we still don't have a valid image but have pookieNumber, try direct path
+        if ((!imageUrl || !imageUrl.startsWith('http')) && pookieNumber) {
+          imageUrl = `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.png`;
+          console.log(`Generated image URL from pookieNumber: ${imageUrl}`);
+        }
+        
+        // Ensure image URL is valid and accessible
+        try {
+          if (imageUrl && imageUrl.startsWith('http')) {
             // Simple validation - just check if URL is accessible
             await axios.head(imageUrl, { timeout: 3000 });
-          } catch (imageError) {
-            console.warn(`[fetchMetadataViaProxy] Invalid image URL for ${nft.mint}: ${imageUrl}`);
+          }
+        } catch (imageError) {
+          console.warn(`[fetchMetadataViaProxy] Invalid image URL for ${nft.mint}: ${imageUrl}`);
+          
+          // Try alternate image URL formats if available
+          if (fullMetadata.properties?.files?.length > 0) {
+            for (const file of fullMetadata.properties.files) {
+              if (typeof file === 'string' && file.startsWith('http')) {
+                imageUrl = file;
+                break;
+              } else if (file.uri && file.uri.startsWith('http')) {
+                imageUrl = file.uri;
+                break;
+              }
+            }
+          }
+          
+          // If pookieNumber is available, try direct path as last resort
+          if (pookieNumber) {
+            imageUrl = `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.png`;
+            console.log(`Falling back to direct pookieNumber path: ${imageUrl}`);
+          } else if (!imageUrl || !imageUrl.startsWith('http')) {
             imageUrl = '/images/pookie-smashin.gif';
           }
-        } else if (!imageUrl.startsWith('/')) {
-          // If not http:// or /, assume invalid and use fallback
-          imageUrl = '/images/pookie-smashin.gif';
         }
 
         return {
@@ -365,6 +441,7 @@ export default function OnChainNftStaking() {
           description: fullMetadata.description || '',
           attributes: fullMetadata.attributes || [],
           metadataFetched: true,
+          pookieNumber: pookieNumber,
         };
       }
       
@@ -660,6 +737,61 @@ export default function OnChainNftStaking() {
     const isLoading = loadingStates[nft.mint] || false;
     const [imageError, setImageError] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
+    const maxRetryAttempts = 2;
+
+    // Extract Pookie number from name if available
+    const nameMatch = nft.name?.match(/Pookie #(\d+)/i);
+    const pookieNumber = (nft as any).pookieNumber || 
+                         (nameMatch ? nameMatch[1] : null);
+
+    // Derive fallback image URL if we have a pookie number
+    const getFallbackImageUrl = () => {
+      if (pookieNumber) {
+        return `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.png`;
+      }
+      return '/images/pookie-smashin.gif';
+    };
+
+    // Try alternate image loading strategies
+    const handleImageError = () => {
+      if (retryCount < maxRetryAttempts) {
+        // Try using different sources in order:
+        // 1. First try: Original image URL
+        // 2. Second try: Number-based fallback if available
+        // 3. Last resort: Default fallback
+
+        setRetryCount(prevCount => prevCount + 1);
+        
+        // Force a reload with a new URL based on retry count
+        if (retryCount === 0 && pookieNumber) {
+          // On first error, try number-based URL
+          console.log(`Trying pookieNumber based URL for ${nft.mint}: ${getFallbackImageUrl()}`);
+          // Do not set image error yet, we'll try the fallback URL
+        } else {
+          // On second error, use default fallback
+          console.log(`Using default fallback for ${nft.mint}`);
+          setImageError(true);
+        }
+      } else {
+        // After max retries, give up and use the default fallback
+        setImageError(true);
+        setImageLoaded(true);
+      }
+    };
+
+    // Determine the current image URL based on state
+    const getImageUrl = () => {
+      if (imageError) {
+        return '/images/pookie-smashin.gif';
+      }
+      
+      if (retryCount === 1 && pookieNumber) {
+        return getFallbackImageUrl();
+      }
+      
+      return nft.image;
+    };
 
     return (
       <Card className="relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200">
@@ -674,9 +806,10 @@ export default function OnChainNftStaking() {
                 <Skeleton className="w-full h-full" />
               </div>
             )}
-            {/* NFT Image */}
+            {/* NFT Image with key to force reload on src change */}
             <Image
-              src={imageError ? '/images/pookie-smashin.gif' : nft.image}
+              key={`${nft.mint}-${retryCount}`}
+              src={getImageUrl()}
               alt={nft.name}
               width={300}
               height={300}
@@ -684,10 +817,9 @@ export default function OnChainNftStaking() {
                 imageLoaded ? 'opacity-100' : 'opacity-0'
               }`}
               onLoad={() => setImageLoaded(true)}
-              onError={() => {
-                setImageError(true);
-                setImageLoaded(true);
-              }}
+              onError={handleImageError}
+              priority={true}
+              loading="eager"
             />
             {/* Loading overlay */}
             {isLoading && (
@@ -715,7 +847,7 @@ export default function OnChainNftStaking() {
                 disabled={isLoading || unstakingInProgress}
                 onClick={() => handleUnstakeNft(nft.mint)}
               >
-                {isLoading ? 'Unstaking...' : 'Unstake & Claim'}
+                {unstakingInProgress && selectedNftMint === nft.mint ? 'Unstaking...' : 'Unstake & Claim'}
               </Button>
             </>
           ) : (
@@ -726,7 +858,7 @@ export default function OnChainNftStaking() {
               disabled={isLoading || stakingInProgress}
               onClick={() => handleStakeNft(nft.mint)}
             >
-              {isLoading ? 'Staking...' : 'Stake NFT'}
+              {stakingInProgress && selectedNftMint === nft.mint ? 'Staking...' : 'Stake NFT'}
             </Button>
           )}
         </CardFooter>
