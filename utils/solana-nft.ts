@@ -162,22 +162,37 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         const name = metadataAccount.name.toString().toLowerCase();
         const symbol = metadataAccount.symbol.toString().toLowerCase();
         
-        // Check if name or symbol contains "pookie"
-        const namePookieCheck = name.includes("pookie") || name.includes("pook ");
-        const symbolPookieCheck = symbol === "pookie" || symbol === "pook";
+        console.log(`NFT name check: "${name}", symbol: "${symbol}" for ${mintAddress}`);
         
-        // Check creators if they exist
+        // Check if name or symbol contains "pookie" with more variations
+        const namePookieCheck = name.includes("pookie") || 
+                               name.includes("pook ") || 
+                               name.includes("pook#") || 
+                               name.startsWith("pook") ||
+                               !!name.match(/pook\s*#\d+/); // Convert to boolean with !!
+                               
+        const symbolPookieCheck = symbol === "pookie" || 
+                                 symbol === "pook" || 
+                                 symbol.includes("pook");
+        
+        // Check creators if they exist - ACTUAL Pookie creator addresses
         let creatorPookieCheck = false;
         if (metadataAccount.creators && metadataAccount.creators.length > 0) {
-          // Known Pookie creator addresses could be added here
+          // Real Pookie creator addresses
           const knownPookieCreators = [
-            "4iUS4V5DCArDz8xZLBsPbCaAZAFWPAQHmPBGwgM9KQo7", // Example creator, replace with actual
-            "HM7SeoTQ4CkLMoG4gWMdnbRBkr6WyKvNuPmvVNQD9VL6"  // Example creator, replace with actual
+            "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address
+            "9s9i1WBU14UNx6a3tK1rhcJ3fCq4MnVTYUJAq6L3HzFH", // Known Pookie creator
+            "HFuhNX69bH7BJ9wh4mGqzKRqFJWAufnDw3r1pVhTPGN1" // Additional Pookie creator
           ];
           
-          creatorPookieCheck = metadataAccount.creators.some(creator => 
-            knownPookieCreators.includes(creator.address.toString())
-          );
+          for (const creator of metadataAccount.creators) {
+            const creatorAddress = creator.address.toString();
+            console.log(`Checking creator: ${creatorAddress} for ${mintAddress}`);
+            if (knownPookieCreators.includes(creatorAddress)) {
+              creatorPookieCheck = true;
+              break;
+            }
+          }
         }
         
         // Combine all checks
