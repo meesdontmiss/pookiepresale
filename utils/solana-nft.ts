@@ -6,7 +6,7 @@ import { fromWeb3JsPublicKey, toWeb3JsPublicKey } from '@metaplex-foundation/umi
 import type { Umi } from '@metaplex-foundation/umi'
 
 // The collection address for Pookie NFTs
-export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'a3a46b3ef956082d30f9483c9f4e23733343eb8bc1de331c3c1072959b76ea4d'
+export const POOKIE_COLLECTION_ADDRESS = 'a3a46b3ef956082d30f9483c9f4e23733343eb8bc1de331c3c1072959b76ea4d';
 
 // Token metadata program ID
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
@@ -60,7 +60,6 @@ export interface NFT {
   symbol?: string
   attributes?: any[]
   collectionAddress?: string | null
-  alternativeImageUrls?: string[]
 }
 
 // Token account interface
@@ -157,7 +156,6 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       
       // Primary check - by collection address
       let isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
-      let nameBasedDetection = false;
       
       // Fallback check - if collection is null, try to identify by name or creators
       if (!isPookieNFT) {
@@ -182,8 +180,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         if (metadataAccount.creators && metadataAccount.creators.length > 0) {
           // Real Pookie creator addresses
           const knownPookieCreators = [
-            "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address (old)
-            "a3a46b3ef956082d30f9483c9f4e23733343eb8bc1de331c3c1072959b76ea4d", // Current Collection Address
+            "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address
             "9s9i1WBU14UNx6a3tK1rhcJ3fCq4MnVTYUJAq6L3HzFH", // Known Pookie creator
             "HFuhNX69bH7BJ9wh4mGqzKRqFJWAufnDw3r1pVhTPGN1" // Additional Pookie creator
           ];
@@ -202,7 +199,6 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         isPookieNFT = namePookieCheck || symbolPookieCheck || creatorPookieCheck;
         
         if (isPookieNFT) {
-          nameBasedDetection = true;
           console.log(`Found Pookie NFT by secondary check: ${mintAddress}, name: ${name}, symbol: ${symbol}`);
         }
       }
@@ -221,77 +217,13 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         const response = await axios.get(uri, { timeout: 5000 });
         const metadata = response.data;
         
-        // UNIFIED IMAGE HANDLING APPROACH - regardless of detection method
-        let imageUrl = metadata.image || '/images/pookie-smashin.gif';
-        console.log(`Original image URL: ${imageUrl} for ${mintAddress}`);
-        
-        // Store alternative image URLs that the client can try
-        const alternativeImageUrls = [];
-        
-        // Add the original image first if it exists
-        if (metadata.image) alternativeImageUrls.push(metadata.image);
-        
-        // Add any additional image URLs from metadata
-        if (metadata.image_url) alternativeImageUrls.push(metadata.image_url);
-        if (metadata.imageUrl) alternativeImageUrls.push(metadata.imageUrl);
-        if (metadata.image_uri) alternativeImageUrls.push(metadata.image_uri);
-        if (metadata.imageUri) alternativeImageUrls.push(metadata.imageUri);
-        
-        // Add gateway variations for IPFS URLs
-        if (imageUrl && imageUrl.includes('ipfs://')) {
-          const ipfsHash = imageUrl.replace('ipfs://', '');
-          // Use multiple gateways for better chances of success
-          alternativeImageUrls.push(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`);
-          alternativeImageUrls.push(`https://cloudflare-ipfs.com/ipfs/${ipfsHash}`);
-          alternativeImageUrls.push(`https://ipfs.io/ipfs/${ipfsHash}`);
-        }
-        
-        // Add Arweave fallback
-        alternativeImageUrls.push('https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs');
-        
-        // Don't transform URLs that are already working
-        if (imageUrl.includes('pinit.io') || 
-            imageUrl.includes('arweave.net') || 
-            imageUrl.includes('cloudflare-ipfs.com') ||
-            (imageUrl.startsWith('http') && !imageUrl.includes('ipfs'))) {
-          console.log(`Using original working image URL: ${imageUrl}`);
-        }
-        // Handle IPFS URLs
-        else if (imageUrl && imageUrl.includes('ipfs://')) {
-          // Try multiple gateways in case one fails
-          const ipfsHash = imageUrl.replace('ipfs://', '');
-          // Use pinata gateway which has been more reliable
-          imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
-          console.log(`Converted IPFS URL to Pinata: ${imageUrl}`);
-        }
-        // Handle Arweave URLs
-        else if (imageUrl && imageUrl.includes('ar://')) {
-          const arweaveHash = imageUrl.replace('ar://', '');
-          imageUrl = `https://arweave.net/${arweaveHash}`;
-          console.log(`Converted Arweave URL to: ${imageUrl}`);
-        }
-        // Ensure image URL is properly formatted for relative paths
-        else if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('/')) {
-          // Assume it's an IPFS hash if not http or relative path
-          imageUrl = `https://gateway.pinata.cloud/ipfs/${imageUrl}`;
-          console.log(`Treating as IPFS hash: ${imageUrl}`);
-        }
-        
-        console.log(`Final image URL: ${imageUrl} for ${mintAddress}`);
-        
-        // Save with direct image URL if available in other properties
-        const directImageUrl = metadata.image_url || metadata.imageUrl || 
-                              metadata.image_uri || metadata.imageUri || 
-                              metadata.uri || metadata.url || imageUrl;
-        
         return {
           mint: mintAddress,
           name: metadata.name || metadataAccount.name.toString(),
           symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
-          image: directImageUrl,
+          image: metadata.image || '/images/pookie-smashin.gif', // Fallback image
           attributes: metadata.attributes || [],
-          collectionAddress,
-          alternativeImageUrls
+          collectionAddress
         };
       } catch (uriError) {
         console.error(`Error fetching URI for ${mintAddress}:`, uriError);
@@ -299,7 +231,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         return {
           mint: mintAddress,
           name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
-          image: 'https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs',  // Known working Pookie image
+          image: '/images/pookie-smashin.gif', // Fallback image
           symbol: metadataAccount.symbol.toString() || '',
           collectionAddress
         };
