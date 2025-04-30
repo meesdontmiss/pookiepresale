@@ -137,8 +137,9 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
     // Try to parse metadata with UMI
     try {
       const umi = getUmi();
-      const mintPubKey = fromWeb3JsPublicKey(new PublicKey(mintAddress));
-      const metadataAccount = await fetchMetadata(umi, mintPubKey);
+      // Convert the metadata PDA to UMI public key format, not the mint
+      const metadataPDAUmi = fromWeb3JsPublicKey(metadataPDA);
+      const metadataAccount = await fetchMetadata(umi, metadataPDAUmi);
       
       // Check if it's in the Pookie collection
       collectionAddress = metadataAccount.collection?.key.toString() || null;
