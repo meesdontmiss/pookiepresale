@@ -88,7 +88,11 @@ interface Creator {
 
 // Modified metadata interface that includes creators
 interface ExtendedMetadata extends TokenMetadata {
-  creators?: Creator[];
+  creators?: Array<{
+    address: { toString: () => string };
+    verified: boolean;
+    share: number;
+  }>;
 }
 
 // Get metadata PDA address from mint
@@ -139,7 +143,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       const umi = getUmi();
       // Convert the metadata PDA to UMI public key format, not the mint
       const metadataPDAUmi = fromWeb3JsPublicKey(metadataPDA);
-      const metadataAccount = await fetchMetadata(umi, metadataPDAUmi);
+      const metadataAccount = await fetchMetadata(umi, metadataPDAUmi) as ExtendedMetadata;
       
       // Add error handling for undefined metadata
       if (!metadataAccount) {
@@ -149,7 +153,40 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       
       // Check if it's in the Pookie collection - with null checks
       collectionAddress = metadataAccount.collection?.key?.toString() || null;
-      const isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
+      
+      // Primary check - by collection address
+      let isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
+      
+      // Fallback check - if collection is null, try to identify by name or creators
+      if (!isPookieNFT) {
+        const name = metadataAccount.name.toString().toLowerCase();
+        const symbol = metadataAccount.symbol.toString().toLowerCase();
+        
+        // Check if name or symbol contains "pookie"
+        const namePookieCheck = name.includes("pookie") || name.includes("pook ");
+        const symbolPookieCheck = symbol === "pookie" || symbol === "pook";
+        
+        // Check creators if they exist
+        let creatorPookieCheck = false;
+        if (metadataAccount.creators && metadataAccount.creators.length > 0) {
+          // Known Pookie creator addresses could be added here
+          const knownPookieCreators = [
+            "4iUS4V5DCArDz8xZLBsPbCaAZAFWPAQHmPBGwgM9KQo7", // Example creator, replace with actual
+            "HM7SeoTQ4CkLMoG4gWMdnbRBkr6WyKvNuPmvVNQD9VL6"  // Example creator, replace with actual
+          ];
+          
+          creatorPookieCheck = metadataAccount.creators.some(creator => 
+            knownPookieCreators.includes(creator.address.toString())
+          );
+        }
+        
+        // Combine all checks
+        isPookieNFT = namePookieCheck || symbolPookieCheck || creatorPookieCheck;
+        
+        if (isPookieNFT) {
+          console.log(`Found Pookie NFT by secondary check: ${mintAddress}, name: ${name}, symbol: ${symbol}`);
+        }
+      }
       
       if (!isPookieNFT) {
         console.log(`Not a Pookie NFT: ${mintAddress}, collection: ${collectionAddress}`);
