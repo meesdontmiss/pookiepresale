@@ -83,28 +83,164 @@ export default function OnChainNftStaking() {
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
+  const isFetchingRef = useRef<boolean>(false); // Ref to track if fetch is in progress
 
-  // Update refs when wallet state changes
+  // Wrap fetchWalletData in useCallback
+  const fetchWalletData = useCallback(async () => {
+    // Prevent overlapping fetches
+    if (isFetchingRef.current) {
+      console.log("Fetch already in progress, skipping.");
+      return;
+    }
+    if (!publicKey || !connection) return
+    
+    isFetchingRef.current = true; // Set fetching flag
+    console.log("Fetching wallet data for publicKey:", publicKey.toString());
+    setError(null)
+    setInitialLoading(true)
+    setMetadataLoading({});
+    try {
+      // Fetch base NFT data (mint, name, symbol, uri in image field)
+      const walletAddress = publicKey.toString()
+      const baseNfts = await fetchNFTsForWallet(walletAddress)
+      
+      console.log("Base NFTs fetched (URI in image field):", baseNfts);
+
+      if (baseNfts.length === 0) {
+        console.log("No base NFTs found for this wallet.");
+        setWalletNfts([])
+        setStakedNfts([])
+        setTotalRewards(0)
+        // No need for setIsLoading/setInitialLoading here, finally block handles it
+        // Removed: setInitialLoading(false)
+        // Removed: setIsLoading(false)
+        return // Early return is okay, finally will still run
+      }
+      
+      // Check staking status for each NFT
+      const nftsWithStakingStatus: StakedNFT[] = await Promise.all(
+        baseNfts.map(async (nft) => {
+          try {
+            const stakingInfo = await getStakingInfo(
+              connection, 
+              publicKey,
+              new PublicKey(nft.mint)
+            )
+            
+            return {
+              ...nft,
+              isStaked: stakingInfo.isStaked,
+              stakedAt: stakingInfo.stakedAt,
+              daysStaked: stakingInfo.daysStaked,
+              currentReward: stakingInfo.currentReward,
+              metadataFetched: false, // Mark as not fetched yet
+            }
+          } catch (error) {
+            console.error(`Error getting staking info for ${nft.mint}:`, error)
+            // Add mint to error object if possible
+            if (error instanceof Error) {
+               (error as any).mint = nft.mint; 
+            }
+            // Propagate error to allow Promise.all to handle potential rate limits gracefully
+            // Consider if you want partial data or full failure on stakingInfo error
+            // For now, return base NFT assuming not staked on error
+            return {
+              ...nft,
+              isStaked: false,
+              metadataFetched: false, 
+            }
+          }
+        })
+      )
+      
+      console.log("NFTs with staking status (pre-metadata fetch):", nftsWithStakingStatus);
+
+      // Separate staked and unstaked NFTs *before* full metadata fetch
+      let stakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
+      let unstakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
+      
+      // Update state with base data first for quicker initial render
+      setWalletNfts(unstakedBase);
+      setStakedNfts(stakedBase);
+      setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
+      
+      // Removed: setIsLoading(false); // Base data loaded - handled in finally
+      // Removed: setInitialLoading(false); - handled in finally
+
+      // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
+      const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => {
+         // Create a stable copy of the current state to update from
+         let currentNfts = [...nftsToUpdate]; 
+         const updatedNftPromises = currentNfts.map(async (nft, index) => {
+           const fullDataNft = await fetchMetadataViaProxy(nft);
+           // Update the specific NFT in the copied array
+           currentNfts[index] = fullDataNft; 
+           // Update state progressively if needed, or just once at the end
+           // For simplicity, we update once after Promise.all
+           return fullDataNft; 
+         });
+    
+         const finalUpdatedNfts = await Promise.all(updatedNftPromises);
+         setStateAction(finalUpdatedNfts); // Update state with the complete list
+       };
+
+      // Fetch for unstaked and staked NFTs concurrently
+      await Promise.all([
+        fetchAndUpdateMetadata(unstakedBase, setWalletNfts),
+        fetchAndUpdateMetadata(stakedBase, setStakedNfts)
+      ]);
+      
+      console.log("Finished fetching full metadata via proxy.");
+
+    } catch (error) {
+      console.error('Error fetching wallet data:', error)
+      // Check for specific errors like rate limits if needed
+      if (error instanceof Error && (error as any).mint) {
+         setError(`Failed to load staking info for ${ (error as any).mint}. Rate limited?`);
+      } else if (axios.isAxiosError(error) && error.response?.status === 429) {
+         setError('RPC rate limit hit. Please wait and refresh.');
+      }
+       else {
+        setError('Failed to load NFT data. Please try refreshing.');
+      }
+      toast({
+        title: "Error loading NFTs",
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+        variant: "destructive"
+      })
+    } finally {
+      // Ensure loading states are always reset
+      setIsLoading(false);
+      setInitialLoading(false);
+      isFetchingRef.current = false; // Clear fetching flag
+      // Keep metadataLoading state as is, it's managed within fetchMetadataViaProxy
+    }
+  // Add dependencies for useCallback
+  }, [publicKey, connection]); 
+
+  // Update refs when wallet state changes - Fetch data here
   useEffect(() => {
     if (connected && publicKey) {
-      connectedRef.current = true
-      setInitialLoading(true)
-      checkWalletBalance()
-      fetchWalletData()
+      connectedRef.current = true;
+      // Don't set initialLoading here, fetchWalletData does it
+      checkWalletBalance();
+      fetchWalletData(); // Call memoized function
+    } else {
+      // Handle disconnection
+      if (connectedRef.current) {
+         connectedRef.current = false;
+         setWalletNfts([]);
+         setStakedNfts([]);
+         setTotalRewards(0);
+         setInitialLoading(false); // Reset loading on disconnect
+         setError(null);
+      }
     }
-  }, [connected, publicKey])
+  // Include fetchWalletData in dependency array as it's memoized
+  }, [connected, publicKey, fetchWalletData]); 
 
-  // Reset state on disconnect
-  useEffect(() => {
-    if (!connected && connectedRef.current) {
-      // Wallet was disconnected
-      connectedRef.current = false
-      setWalletNfts([])
-      setStakedNfts([])
-      setTotalRewards(0)
-      setInitialLoading(false)
-    }
-  }, [connected])
+  // Removed: useEffect for disconnection logic (merged above)
+  // Removed: useEffect for initial load/refresh interval
 
   // Check if wallet has enough SOL for transactions
   const checkWalletBalance = async () => {
@@ -128,148 +264,50 @@ export default function OnChainNftStaking() {
 
   // Function to fetch full metadata via the backend proxy
   const fetchMetadataViaProxy = async (nft: StakedNFT): Promise<StakedNFT> => {
-    if (nft.metadataFetched) {
-      // Already fetched or skipped
-      return nft;
-    }
-    
-    if (!nft.image || !nft.image.startsWith('http')) {
-      // If image is already set (e.g., fallback) or not a valid URI, skip
-      return { ...nft, metadataFetched: true }; 
-    }
+    if (nft.metadataFetched) return nft;
+    if (!nft.image || !nft.image.startsWith('http')) return { ...nft, metadataFetched: true }; 
 
-    const uri = nft.image; // The URI is stored in the 'image' field temporarily
+    const uri = nft.image; 
     setMetadataLoading(prev => ({ ...prev, [nft.mint]: true }));
+    console.log(`[fetchMetadataViaProxy] Attempting to fetch for mint ${nft.mint} via proxy. URI: ${uri}`); // <-- Added log
 
     try {
       const response = await axios.get(`/api/nft/metadata?uri=${encodeURIComponent(uri)}`);
       const fullMetadata = response.data;
-      
-      // Return the NFT with updated details from the fetched metadata
-      // Crucially, merge with existing nft object to preserve staking info
       return {
-        ...nft, // Keep existing StakedNFT properties (isStaked, stakedAt, etc.)
-        name: fullMetadata.name || nft.name, // Use fetched name, fallback to on-chain
-        image: fullMetadata.image || '/images/pookie-smashin.gif', // Use fetched image, fallback
-        description: fullMetadata.description || '',
-        attributes: fullMetadata.attributes || [],
-        metadataFetched: true,
-      };
+          ...nft, 
+          name: fullMetadata.name || nft.name, 
+          image: fullMetadata.image || '/images/pookie-smashin.gif', 
+          description: fullMetadata.description || '',
+          attributes: fullMetadata.attributes || [],
+          metadataFetched: true,
+        };
     } catch (error) {
-      console.error(`Failed to fetch metadata for ${nft.mint} from proxy:`, error);
-      // Keep existing data but mark as fetched (to avoid retrying)
-      // Use fallback image if the URI fetch failed
-      return { 
-          ...nft, // Keep existing StakedNFT properties
-          image: '/images/pookie-smashin.gif',
-          metadataFetched: true 
-      };
+       console.error(`[fetchMetadataViaProxy] Failed to fetch metadata for ${nft.mint} from proxy:`, error); // <-- Enhanced log
+       return { 
+           ...nft, 
+           image: '/images/pookie-smashin.gif',
+           metadataFetched: true 
+       };
     } finally {
        setMetadataLoading(prev => ({ ...prev, [nft.mint]: false }));
     }
   };
-
-  // Fetch wallet NFTs and check staking status
-  const fetchWalletData = async () => {
-    if (!publicKey) return
-    
-    console.log("Fetching wallet data for publicKey:", publicKey.toString());
-    setError(null)
-    setInitialLoading(true)
-    // Reset loading states for metadata
-    setMetadataLoading({});
-    try {
-      // Fetch base NFT data (mint, name, symbol, uri in image field)
-      const walletAddress = publicKey.toString()
-      const baseNfts = await fetchNFTsForWallet(walletAddress)
-      
-      console.log("Base NFTs fetched (URI in image field):", baseNfts);
-
-      if (baseNfts.length === 0) {
-        console.log("No base NFTs found for this wallet.");
-        setWalletNfts([])
-        setStakedNfts([])
-        setTotalRewards(0)
-        setInitialLoading(false)
-        setIsLoading(false)
-        return
-      }
-      
-      // Check staking status for each NFT
-      const nftsWithStakingStatus: StakedNFT[] = await Promise.all(
-        baseNfts.map(async (nft) => {
-          try {
-            const stakingInfo = await getStakingInfo(
-              connection, 
-              publicKey,
-              new PublicKey(nft.mint)
-            )
-            
-            return {
-              ...nft,
-              isStaked: stakingInfo.isStaked,
-              stakedAt: stakingInfo.stakedAt,
-              daysStaked: stakingInfo.daysStaked,
-              currentReward: stakingInfo.currentReward,
-              metadataFetched: false, // Mark as not fetched yet
-            }
-          } catch (error) {
-            console.error(`Error getting staking info for ${nft.mint}:`, error)
-            return {
-              ...nft,
-              isStaked: false,
-              metadataFetched: false, // Mark as not fetched yet
-            }
-          }
-        })
-      )
-      
-      console.log("NFTs with staking status (pre-metadata fetch):", nftsWithStakingStatus);
-
-      // Separate staked and unstaked NFTs *before* full metadata fetch
-      let stakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
-      let unstakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
-      
-      // Update state with base data first for quicker initial render
-      setWalletNfts(unstakedBase);
-      setStakedNfts(stakedBase);
-      setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
-      setIsLoading(false); // Base data loaded
-      setInitialLoading(false);
-
-      // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
-      // We do this after the initial render to avoid blocking UI
-      const fetchAndUpdateMetadata = async (nftsToUpdate: StakedNFT[], setStateAction: React.Dispatch<React.SetStateAction<StakedNFT[]>>) => {
-        const updatedNfts = await Promise.all(
-          nftsToUpdate.map(nft => fetchMetadataViaProxy(nft))
-        );
-        // Update state again with full metadata
-        setStateAction(updatedNfts);
-      };
-
-      // Fetch for unstaked and staked NFTs concurrently
-      await Promise.all([
-        fetchAndUpdateMetadata(unstakedBase, setWalletNfts),
-        fetchAndUpdateMetadata(stakedBase, setStakedNfts)
-      ]);
-      
-      console.log("Finished fetching full metadata via proxy.");
-
-    } catch (error) {
-      console.error('Error fetching wallet data:', error)
-      setError('Failed to load NFT data. Please try again.')
-      toast({
-        title: "Error loading NFTs",
-        description: "Failed to load your NFTs. Please try again.",
-        variant: "destructive"
-      })
-       // Ensure loading states are reset on error
-      setIsLoading(false)
-      setInitialLoading(false)
-      setMetadataLoading({});
-    }
-  }
   
+  // Manual Refresh Handler - Uses the memoized fetchWalletData
+  const handleRefresh = useCallback(() => {
+    if (!connected || !publicKey) {
+       toast({ title: "Wallet not connected", variant: "destructive" });
+       return;
+    }
+    console.log("Manual refresh triggered.");
+    // Clear existing error message on manual refresh
+    setError(null); 
+    fetchWalletData(); // Call the memoized function directly
+    checkWalletBalance();
+   // Removed: setRefreshTrigger(prev => prev + 1); // No longer needed
+  }, [connected, publicKey, fetchWalletData]); // Add fetchWalletData dependency
+
   // Handle NFT staking
   const handleStakeNft = async (nftMint: string) => {
     if (!connected || !publicKey) {
@@ -510,12 +548,6 @@ export default function OnChainNftStaking() {
     }
   }
   
-  // Handle refresh
-  const handleRefresh = () => {
-    fetchWalletData()
-    checkWalletBalance()
-  }
-  
   // Format time display
   const formatTimeAgo = (timestamp?: number): string => {
     if (!timestamp) return "Unknown"
@@ -641,108 +673,111 @@ export default function OnChainNftStaking() {
   }
   
   // Render NFT grid with loading states
-  const renderNftGrid = (nfts: StakedNFT[], isStaked = false, isLoading = false) => {
-    if (initialLoading) {
-      return (
-        <div className="py-10 flex flex-col items-center justify-center">
-          <RefreshCwIcon size={40} className="animate-spin text-primary/50 mb-4" />
-          <p className="text-center text-muted-foreground">Loading NFTs and staking data...</p>
-        </div>
-      )
+  const renderNftGrid = (nfts: StakedNFT[], isStaked = false, isLoadingProp = false) => { // Renamed isLoading prop
+    const showInitialLoading = initialLoading && !error; // Show initial loading only if no error
+    const showMetadataSkeletons = !initialLoading && Object.values(metadataLoading).some(loading => loading);
+
+    if (showInitialLoading) {
+       return (
+         <div className="py-10 flex flex-col items-center justify-center">
+           <RefreshCwIcon size={40} className="animate-spin text-primary/50 mb-4" />
+           <p className="text-center text-muted-foreground">Loading NFTs and staking data...</p>
+         </div>
+       )
     }
     
-    if (isLoading || Object.values(metadataLoading).some(loading => loading)) {
+    // Show skeletons if metadata is loading OR if the main fetch is still considered loading (isLoadingProp)
+    if (showMetadataSkeletons || isLoadingProp) { 
       return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {[...Array(5)].map((_, i) => (
+          {[...Array(nfts.length > 0 ? nfts.length : 5)].map((_, i) => ( // Render skeletons based on expected number or default
             <Skeleton key={i} className="aspect-square w-full h-auto rounded-lg" />
           ))}
         </div>
       )
     }
-    
-    if (!connected) {
+
+    // Handle connection errors or specific fetch errors
+    if (error) {
       return (
-        <div className="py-12 flex flex-col items-center justify-center">
-          <WalletIcon size={40} className="text-primary/50 mb-4" />
-          <p className="text-muted-foreground mb-4">Connect your wallet to view and stake your NFTs</p>
-          <p className="text-xs text-muted-foreground/70 max-w-sm text-center">
-            Connect your Solana wallet to view your NFTs, stake them, and earn $POOKIE rewards.
-          </p>
+        <div className="py-10 flex flex-col items-center justify-center">
+          <AlertTriangleIcon size={40} className="text-destructive mb-4" />
+          <p className="text-destructive font-medium">Error Loading Data</p>
+          <p className="text-center text-muted-foreground mt-2">{error}</p>
+          <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-4">Try Again</Button>
         </div>
       )
+    }
+    
+    if (!connected) {
+       return (
+         <div className="py-12 flex flex-col items-center justify-center">
+           <WalletIcon size={40} className="text-primary/50 mb-4" />
+           <p className="text-muted-foreground mb-4">Connect your wallet to view and stake your NFTs</p>
+           {/* <WalletMultiButton /> */}
+           <p className="text-xs text-muted-foreground/70 max-w-sm text-center mt-4">
+              Connect your Solana wallet to view your NFTs, stake them, and earn $POOKIE rewards.
+           </p>
+         </div>
+       )
     }
     
     if (nfts.length === 0) {
-      return (
-        <div className="py-10 flex flex-col items-center justify-center">
-          {isStaked ? (
-            <>
-              <ClockIcon size={40} className="text-primary/50 mb-4" />
-              <p className="text-muted-foreground">No NFTs staked yet</p>
-              <p className="text-xs text-muted-foreground/70 mt-2">
-                Stake your NFTs to start earning $POOKIE rewards
-              </p>
-            </>
-          ) : (
-            <>
-              <CoinsIcon size={40} className="text-primary/50 mb-4" />
-              <p className="text-muted-foreground">No NFTs found in your wallet</p>
-              <p className="text-xs text-muted-foreground/70 mt-2">
-                Purchase Pookie NFTs to stake them and earn rewards
-              </p>
-            </>
-          )}
-        </div>
-      )
+       return (
+         <div className="py-10 flex flex-col items-center justify-center">
+           {isStaked ? (
+             <>
+               <ClockIcon size={40} className="text-primary/50 mb-4" />
+               <p className="text-muted-foreground">No NFTs staked yet</p>
+               <p className="text-xs text-muted-foreground/70 mt-2">
+                 Stake your NFTs from the Wallet tab to start earning $POOKIE rewards.
+               </p>
+             </>
+           ) : (
+             <>
+               <CoinsIcon size={40} className="text-primary/50 mb-4" />
+               <p className="text-muted-foreground">No eligible NFTs found in your wallet</p>
+               <p className="text-xs text-muted-foreground/70 mt-2">
+                 Ensure you hold Pookie NFTs from the correct collection ({BaseNFT.POOKIE_COLLECTION_ADDRESS?.slice(0,6)}...).
+               </p>
+             </>
+           )}
+         </div>
+       )
     }
     
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-        {nfts.map((nft) => (
-          <NftCard 
-            key={nft.mint} 
-            nft={nft} 
-            isStaked={isStaked} 
-          />
-        ))}
-      </div>
+       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+         {nfts.map((nft) => (
+           <NftCard 
+             key={nft.mint} 
+             nft={nft} 
+             isStaked={isStaked} 
+           />
+         ))}
+       </div>
     )
   }
-  
-  // Clean up function
-  const cleanUp = () => {
-    if (refreshTimer.current) {
-      clearInterval(refreshTimer.current)
-    }
-  }
-
-  // Initial load and refresh on wallet change/refreshTrigger
-  useEffect(() => {
-    fetchWalletData()
-    
-    // Set up periodic refresh (every 30 seconds)
-    refreshTimer.current = setInterval(() => {
-      fetchWalletData()
-    }, 30000)
-    
-    return cleanUp
-  }, [publicKey, refreshTrigger, fetchWalletData])
 
   return (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
       onReset={() => {
-        setIsLoading(false)
-        setStakingInProgress(false)
-        setUnstakingInProgress(false) 
-        setClaimingInProgress(false)
-        setSelectedNftMint("")
-        setError(null)
-        
-        if (connected && publicKey) {
-          fetchWalletData()
-        }
+         // Reset state more comprehensively
+         setIsLoading(false);
+         setInitialLoading(false); // Ensure initial loading is reset
+         setStakingInProgress(false);
+         setUnstakingInProgress(false); 
+         setClaimingInProgress(false);
+         setSelectedNftMint("");
+         setError(null);
+         setMetadataLoading({}); // Reset metadata loading
+         isFetchingRef.current = false; // Reset fetch ref
+         
+         // Trigger a fresh fetch if connected
+         if (connected && publicKey) {
+           fetchWalletData();
+         }
       }}
     >
       <div className="space-y-4">
@@ -753,19 +788,14 @@ export default function OnChainNftStaking() {
             variant="outline" 
             size="sm" 
             onClick={handleRefresh}
-            disabled={isLoading || !connected}
+            // Disable refresh if initial loading or any metadata is loading
+            disabled={initialLoading || Object.values(metadataLoading).some(loading => loading) || isLoading || !connected}
           >
-            <RefreshCwIcon size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            {/* Use initialLoading or isLoading to show spin */}
+            <RefreshCwIcon size={16} className={`mr-2 ${(initialLoading || isLoading) ? 'animate-spin' : ''}`} /> 
             Refresh
           </Button>
         </div>
-        
-        {!hasSufficientBalance && connected && (
-          <div className="bg-warning/10 border border-warning text-warning p-3 rounded-lg mb-2 text-sm flex items-center">
-            <AlertTriangleIcon size={16} className="mr-2 flex-shrink-0" />
-            <span>Your wallet has insufficient SOL for transactions. Please add more SOL to continue.</span>
-          </div>
-        )}
         
         {/* Stats panel for staked NFTs */}
         {stakedNfts.length > 0 && (
