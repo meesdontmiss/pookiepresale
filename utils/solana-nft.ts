@@ -202,6 +202,9 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
   
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1500;
+  // Add error tracking to prevent wasting API credits
+  const MAX_CONSECUTIVE_ERRORS = 5;
+  let consecutiveErrors = 0;
   
   const fetchWithRetry = async (fn: () => Promise<any>, retries = 0): Promise<any> => {
     try {
@@ -243,6 +246,12 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
     const batchSize = 2; // Reduced batch size to avoid rate limits
     
     for (let i = 0; i < nftAccounts.length; i += batchSize) {
+      // Exit early if too many consecutive errors to prevent endless API calls
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        console.warn(`Too many consecutive errors (${consecutiveErrors}), stopping NFT fetch to prevent API waste`);
+        break;
+      }
+
       console.log(`Processing batch ${i / batchSize + 1} of ${Math.ceil(nftAccounts.length / batchSize)}`);
       const batch = nftAccounts.slice(i, i + batchSize);
       
@@ -250,9 +259,17 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
         const mint = tokenAccount.account.data.parsed.info.mint;
         console.log('Processing NFT mint:', mint);
         try {
-          return await fetchWithRetry(() => parseNFTMetadata(mint));
+          const result = await fetchWithRetry(() => parseNFTMetadata(mint));
+          if (result) {
+            consecutiveErrors = 0; // Reset error counter on success
+            return result;
+          } else {
+            consecutiveErrors++; // Increment error counter for null results
+            return null;
+          }
         } catch (error) {
           console.error(`Error processing NFT ${mint}:`, error);
+          consecutiveErrors++; // Increment error counter on error
           return null;
         }
       });
