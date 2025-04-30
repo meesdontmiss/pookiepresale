@@ -217,11 +217,17 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         const response = await axios.get(uri, { timeout: 5000 });
         const metadata = response.data;
         
+        // Process image URL to use our proxy for external URLs
+        let imageUrl = metadata.image || '/images/pookie-smashin.gif';
+        if (imageUrl && imageUrl.startsWith('http')) {
+          imageUrl = `/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+        }
+        
         return {
           mint: mintAddress,
           name: metadata.name || metadataAccount.name.toString(),
           symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
-          image: metadata.image || '/images/pookie-smashin.gif', // Fallback image
+          image: imageUrl,
           attributes: metadata.attributes || [],
           collectionAddress
         };
@@ -231,7 +237,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         return {
           mint: mintAddress,
           name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
-          image: '/images/pookie-smashin.gif', // Fallback image
+          image: `/images/pookie-nft-${mintAddress.slice(0, 8)}.png`,
           symbol: metadataAccount.symbol.toString() || '',
           collectionAddress
         };

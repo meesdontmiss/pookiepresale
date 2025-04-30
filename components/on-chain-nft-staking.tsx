@@ -372,18 +372,11 @@ export default function OnChainNftStaking() {
             break;
           }
           
-          // Handle remote URLs
+          // Use our image proxy for external URLs to bypass CORS issues
           if (imgSource.startsWith('http')) {
-            try {
-              // Simple validation with a HEAD request
-              await axios.head(imgSource, { timeout: 3000 });
-              validImageUrl = imgSource;
-              console.log(`[fetchMetadataViaProxy] Validated remote image URL: ${validImageUrl}`);
-              break;
-            } catch (err) {
-              console.warn(`[fetchMetadataViaProxy] Invalid image URL: ${imgSource}`);
-              // Continue to next source
-            }
+            validImageUrl = `/api/image-proxy?url=${encodeURIComponent(imgSource)}`;
+            console.log(`[fetchMetadataViaProxy] Using image proxy for URL: ${imgSource}`);
+            break;
           }
         }
         
@@ -409,7 +402,7 @@ export default function OnChainNftStaking() {
         ...nft,
         metadataFetched: true,
         name: nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
-        image: '/images/pookie-smashin.gif',
+        image: `/images/pookie-nft-${nft.mint.slice(0, 8)}.png`, // Use dynamic fallback
       };
     } catch (error) {
       console.error(`[fetchMetadataViaProxy] Failed to fetch metadata for ${nft.mint}:`, error);
@@ -417,7 +410,7 @@ export default function OnChainNftStaking() {
       return { 
         ...nft, 
         name: nft.name || `Pookie #${nft.mint.slice(0, 6)}`,
-        image: '/images/pookie-smashin.gif',
+        image: `/images/pookie-nft-${nft.mint.slice(0, 8)}.png`, // Use dynamic fallback
         metadataFetched: true 
       };
     } finally {
