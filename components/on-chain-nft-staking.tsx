@@ -561,203 +561,142 @@ export default function OnChainNftStaking() {
     return `${Math.floor(secondsAgo / 86400)} days ago`
   }
   
-  // NFT card component
+  // Update the NFT card component
   const NftCard = ({ nft, isStaked = false }: { nft: StakedNFT, isStaked?: boolean }) => {
-    const info = stakedNfts.find(n => n.mint === nft.mint)
-    const isLoadingMetadata = metadataLoading[nft.mint] || false
-    
-    return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ duration: 0.2 }}
-        className="relative group"
-      >
-        <Card className="overflow-hidden bg-card/80 backdrop-blur-sm hover:shadow-lg transition-shadow duration-300 border-primary/20">
-          <CardContent className="p-0 aspect-square relative">
-            {isLoadingMetadata ? (
-              <Skeleton className="w-full h-full" />
-            ) : (
-              <Image 
-                src={nft.image || '/images/pookie-smashin.gif'} // Use fetched or fallback image
-                alt={nft.name || `NFT ${nft.mint.slice(0, 6)}`}
-                width={300} // Set appropriate dimensions
-                height={300}
-                className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
-                priority={!isStaked} // Prioritize loading wallet NFTs
-                unoptimized={nft.image?.endsWith('.gif')} // Avoid optimization for GIFs
-              />
-            )}
-            {isStaked && (
-              <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 text-xs rounded-full font-semibold shadow-md">
-                STAKED
-              </div>
-            )}
-          </CardContent>
-          
-          <CardFooter className="p-2">
-            <h3 className="text-sm font-medium mb-1 truncate">{nft.name}</h3>
-            
-            {isStaked ? (
-              <div className="space-y-2 mt-2">
-                <div className="flex items-center text-xs text-muted-foreground">
-                  <ClockIcon size={12} className="mr-1" />
-                  <span>Staked: {info?.daysStaked} days</span>
-                </div>
-                
-                <div className="flex items-center text-xs text-muted-foreground">
-                  <CoinsIcon size={12} className="mr-1" />
-                  <span>Rewards: {info?.currentReward} $POOKIE</span>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => handleClaimRewards(nft.mint)}
-                    disabled={claimingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-                    className="w-full text-xs h-8"
-                  >
-                    {claimingInProgress && selectedNftMint === nft.mint ? (
-                      <div className="flex items-center">
-                        <RefreshCwIcon size={12} className="mr-1 animate-spin" />
-                        Claiming...
-                      </div>
-                    ) : (
-                      "Claim Rewards"
-                    )}
-                  </Button>
-                  
-                  <Button 
-                    variant="destructive" 
-                    size="sm"
-                    onClick={() => handleUnstakeNft(nft.mint)}
-                    disabled={unstakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-                    className="w-full text-xs h-8"
-                  >
-                    {unstakingInProgress && selectedNftMint === nft.mint ? (
-                      <div className="flex items-center">
-                        <RefreshCwIcon size={12} className="mr-1 animate-spin" />
-                        Unstaking...
-                      </div>
-                    ) : (
-                      "Unstake"
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button 
-                variant="default" 
-                size="sm"
-                onClick={() => handleStakeNft(nft.mint)}
-                disabled={stakingInProgress && selectedNftMint === nft.mint || !hasSufficientBalance}
-                className="w-full mt-2 h-8"
-              >
-                {stakingInProgress && selectedNftMint === nft.mint ? (
-                  <div className="flex items-center">
-                    <RefreshCwIcon size={14} className="mr-1 animate-spin" />
-                    Staking...
-                  </div>
-                ) : (
-                  "Stake NFT"
-                )}
-              </Button>
-            )}
-          </CardFooter>
-        </Card>
-      </motion.div>
-    )
-  }
-  
-  // Render NFT grid with loading states
-  const renderNftGrid = (nfts: StakedNFT[], isStaked = false, isLoadingProp = false) => { // Renamed isLoading prop
-    const showInitialLoading = initialLoading && !error; // Show initial loading only if no error
-    const showMetadataSkeletons = !initialLoading && Object.values(metadataLoading).some(loading => loading);
+    const isLoading = loadingStates[nft.mint] || false;
+    const [imageError, setImageError] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
 
-    if (showInitialLoading) {
-       return (
-         <div className="py-10 flex flex-col items-center justify-center">
-           <RefreshCwIcon size={40} className="animate-spin text-primary/50 mb-4" />
-           <p className="text-center text-muted-foreground">Loading NFTs and staking data...</p>
-         </div>
-       )
-    }
-    
-    // Show skeletons if metadata is loading OR if the main fetch is still considered loading (isLoadingProp)
-    if (showMetadataSkeletons || isLoadingProp) { 
+    return (
+      <Card className="relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200">
+        <CardHeader className="p-4">
+          <CardTitle className="text-sm font-medium truncate">{nft.name}</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="relative aspect-square">
+            {/* Show skeleton while loading */}
+            {!imageLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+                <Skeleton className="w-full h-full" />
+              </div>
+            )}
+            {/* NFT Image */}
+            <Image
+              src={imageError ? '/images/pookie-smashin.gif' : nft.image}
+              alt={nft.name}
+              width={300}
+              height={300}
+              className={`w-full h-full object-cover transition-opacity duration-200 ${
+                imageLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => {
+                setImageError(true);
+                setImageLoaded(true);
+              }}
+            />
+            {/* Loading overlay */}
+            {isLoading && (
+              <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+        <CardFooter className="p-4 flex flex-col gap-2">
+          {isStaked ? (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ClockIcon size={12} />
+                <span>Staked {formatTimeAgo(nft.stakedAt)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <CoinsIcon size={12} />
+                <span>{nft.currentReward?.toFixed(2) || '0'} POOKIE earned</span>
+              </div>
+              <Button 
+                variant="destructive" 
+                size="sm"
+                className="w-full"
+                disabled={isLoading || unstakingInProgress}
+                onClick={() => handleUnstakeNft(nft.mint)}
+              >
+                {isLoading ? 'Unstaking...' : 'Unstake & Claim'}
+              </Button>
+            </>
+          ) : (
+            <Button 
+              variant="default" 
+              size="sm"
+              className="w-full"
+              disabled={isLoading || stakingInProgress}
+              onClick={() => handleStakeNft(nft.mint)}
+            >
+              {isLoading ? 'Staking...' : 'Stake NFT'}
+            </Button>
+          )}
+        </CardFooter>
+      </Card>
+    );
+  };
+  
+  // Update the grid rendering component
+  const renderNftGrid = (nfts: StakedNFT[], isStaked = false) => {
+    if (!connected) {
       return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {[...Array(nfts.length > 0 ? nfts.length : 5)].map((_, i) => ( // Render skeletons based on expected number or default
-            <Skeleton key={i} className="aspect-square w-full h-auto rounded-lg" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <WalletIcon className="w-12 h-12 text-muted-foreground mb-4" />
+          <p className="text-muted-foreground">Connect your wallet to view your NFTs</p>
+        </div>
+      );
+    }
+
+    if (initialLoading) {
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="bg-card/50">
+              <CardHeader className="p-4">
+                <Skeleton className="h-4 w-3/4" />
+              </CardHeader>
+              <CardContent className="p-0">
+                <Skeleton className="aspect-square" />
+              </CardContent>
+              <CardFooter className="p-4">
+                <Skeleton className="h-8 w-full" />
+              </CardFooter>
+            </Card>
           ))}
         </div>
-      )
+      );
     }
 
-    // Handle connection errors or specific fetch errors
-    if (error) {
-      return (
-        <div className="py-10 flex flex-col items-center justify-center">
-          <AlertTriangleIcon size={40} className="text-destructive mb-4" />
-          <p className="text-destructive font-medium">Error Loading Data</p>
-          <p className="text-center text-muted-foreground mt-2">{error}</p>
-          <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-4">Try Again</Button>
-        </div>
-      )
-    }
-    
-    if (!connected) {
-       return (
-         <div className="py-12 flex flex-col items-center justify-center">
-           <WalletIcon size={40} className="text-primary/50 mb-4" />
-           <p className="text-muted-foreground mb-4">Connect your wallet to view and stake your NFTs</p>
-           {/* <WalletMultiButton /> */}
-           <p className="text-xs text-muted-foreground/70 max-w-sm text-center mt-4">
-              Connect your Solana wallet to view your NFTs, stake them, and earn $POOKIE rewards.
-           </p>
-         </div>
-       )
-    }
-    
     if (nfts.length === 0) {
-       return (
-         <div className="py-10 flex flex-col items-center justify-center">
-           {isStaked ? (
-             <>
-               <ClockIcon size={40} className="text-primary/50 mb-4" />
-               <p className="text-muted-foreground">No NFTs staked yet</p>
-               <p className="text-xs text-muted-foreground/70 mt-2">
-                 Stake your NFTs from the Wallet tab to start earning $POOKIE rewards.
-               </p>
-             </>
-           ) : (
-             <>
-               <CoinsIcon size={40} className="text-primary/50 mb-4" />
-               <p className="text-muted-foreground">No eligible NFTs found in your wallet</p>
-               <p className="text-xs text-muted-foreground/70 mt-2">
-                 Ensure you hold Pookie NFTs from the correct collection ({BaseNFT.POOKIE_COLLECTION_ADDRESS?.slice(0,6)}...).
-               </p>
-             </>
-           )}
-         </div>
-       )
+      return (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          {isStaked ? (
+            <>
+              <CoinsIcon className="w-12 h-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No staked NFTs found</p>
+            </>
+          ) : (
+            <>
+              <AlertTriangleIcon className="w-12 h-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No Pookie NFTs found in wallet</p>
+            </>
+          )}
+        </div>
+      );
     }
-    
+
     return (
-       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-         {nfts.map((nft) => (
-           <NftCard 
-             key={nft.mint} 
-             nft={nft} 
-             isStaked={isStaked} 
-           />
-         ))}
-       </div>
-    )
-  }
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {nfts.map((nft) => (
+          <NftCard key={nft.mint} nft={nft} isStaked={isStaked} />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <ErrorBoundary
@@ -845,11 +784,11 @@ export default function OnChainNftStaking() {
               transition={{ duration: 0.2 }}
             >
               <TabsContent value="wallet" className="mt-0">
-                {renderNftGrid(walletNfts, false, isLoading)}
+                {renderNftGrid(walletNfts, false)}
               </TabsContent>
               
               <TabsContent value="staked" className="mt-0">
-                {renderNftGrid(stakedNfts, true, isLoading)}
+                {renderNftGrid(stakedNfts, true)}
               </TabsContent>
             </motion.div>
           </AnimatePresence>

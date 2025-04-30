@@ -8,7 +8,7 @@ import { createWeb3JsRpc } from '@metaplex-foundation/umi-rpc-web3js'
 // The collection address for Pookie NFTs
 export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ'
 
-// Solana RPC URL - Use public endpoint
+// Solana RPC URL - Use public endpoint with rate limiting consideration
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com"
 
 // NFT interface
@@ -29,7 +29,6 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
     // Create a Umi instance
     const umi = createUmi(connection.rpcEndpoint)
       .use(mplTokenMetadata())
-      // Use createWeb3JsRpc wrapper to allow passing the web3.js Connection object
       .use({
         install(umi) {
           umi.rpc = createWeb3JsRpc(umi, connection);
@@ -37,40 +36,52 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
       });
 
     // Fetch metadata using Umi
-    const metadataAccount = await fetchMetadata(umi, umiPublicKey(mintAddress))
+    const metadataAccount = await fetchMetadata(umi, umiPublicKey(mintAddress));
 
     if (!metadataAccount) {
       console.warn(`No metadata account found for mint: ${mintAddress}`);
       return null;
     }
 
-    // --- Metadata URI is now correctly fetched via metadataAccount.uri ---
-    // --- We will fetch the content via a backend proxy later ---
+    // Clean the URI: Remove null terminators and whitespace
+    const cleanedUri = metadataAccount.uri.replace(/\0/g, '').trim();
+    
+    try {
+      // Fetch actual metadata from the URI using axios
+      const response = await axios.get(cleanedUri);
+      const metadata = response.data;
 
-    // For now, return the basic info + URI (will be replaced by proxy data later)
-    // Clean the URI: Remove null terminators often found in on-chain URIs
-    const cleanedUri = metadataAccount.uri.replace(/\\u0000/g, '');
+      // Check if this NFT belongs to the Pookie collection
+      const isPookieNFT = metadataAccount.collection?.key === POOKIE_COLLECTION_ADDRESS;
+      
+      if (!isPookieNFT) {
+        return null; // Skip non-Pookie NFTs
+      }
 
-    return {
-      mint: mintAddress,
-      // Use on-chain name and symbol if available
-      name: metadataAccount.name || `NFT #${mintAddress.slice(0, 6)}`,
-      symbol: metadataAccount.symbol || '',
-      // Store the URI, we'll fetch content via proxy later
-      image: cleanedUri, // Placeholder: Use URI for now, will be replaced by actual image from proxy
-      attributes: [], // Placeholder: Will be populated by proxy fetch
-      collectionAddress: POOKIE_COLLECTION_ADDRESS // Assuming collection check happens later
-    };
+      return {
+        mint: mintAddress,
+        name: metadata.name || metadataAccount.name,
+        symbol: metadata.symbol || metadataAccount.symbol || '',
+        image: metadata.image || '/images/pookie-smashin.gif', // Fallback to placeholder if no image
+        attributes: metadata.attributes || [],
+        collectionAddress: POOKIE_COLLECTION_ADDRESS
+      };
+
+    } catch (uriError) {
+      console.error(`Error fetching metadata URI for ${mintAddress}:`, uriError);
+      // Return basic metadata if URI fetch fails
+      return {
+        mint: mintAddress,
+        name: metadataAccount.name || `Pookie #${mintAddress.slice(0, 6)}`,
+        image: '/images/pookie-smashin.gif', // Fallback image
+        symbol: metadataAccount.symbol || '',
+        collectionAddress: POOKIE_COLLECTION_ADDRESS
+      };
+    }
 
   } catch (error) {
     console.error(`Error parsing NFT metadata for ${mintAddress}:`, error);
-    // Fallback for errors during parsing
-    return {
-      mint: mintAddress,
-      name: `NFT #${mintAddress.slice(0, 6)}`,
-      image: '/images/pookie-smashin.gif', // Default image on error
-      collectionAddress: POOKIE_COLLECTION_ADDRESS
-    };
+    return null;
   }
 }
 
@@ -80,20 +91,34 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
 // async function getMetadataPDA(mintAddress: string): Promise<string> { ... } // Removed
 
 /**
- * Fetch NFTs owned by a wallet using Solana RPC
+ * Fetch NFTs owned by a wallet using Solana RPC with retry logic
  */
 export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> {
-  // Connect to Solana
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed')
+  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000;
+  
+  const fetchWithRetry = async (fn: () => Promise<any>, retries = 0): Promise<any> => {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error.message?.includes('429') && retries < MAX_RETRIES) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retries)));
+        return fetchWithRetry(fn, retries + 1);
+      }
+      throw error;
+    }
+  };
   
   try {
-    // Check if wallet is valid
-    const pubKey = new PublicKey(walletAddress)
+    const pubKey = new PublicKey(walletAddress);
     
-    // Use getParsedTokenAccountsByOwner to get all token accounts 
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      pubKey,
-      { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
+    // Fetch token accounts with retry
+    const tokenAccounts = await fetchWithRetry(() => 
+      connection.getParsedTokenAccountsByOwner(
+        pubKey,
+        { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
+      )
     );
     
     // Filter for NFTs (amount = 1)
@@ -102,42 +127,36 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
       return amount.uiAmount === 1 && amount.decimals === 0;
     });
     
-    // Process NFTs in parallel with a limit to avoid rate limiting
+    // Process NFTs in parallel with rate limiting
     const nfts: NFT[] = [];
-    const batchSize = 5;
+    const batchSize = 3; // Reduced batch size to avoid rate limits
     
     for (let i = 0; i < nftAccounts.length; i += batchSize) {
       const batch = nftAccounts.slice(i, i + batchSize);
       
       const batchPromises = batch.map(async (tokenAccount) => {
         const mint = tokenAccount.account.data.parsed.info.mint;
-        const metadata = await parseNFTMetadata(connection, mint);
-        
-        if (metadata) {
-          return metadata;
-        }
-        return null;
+        return await fetchWithRetry(() => parseNFTMetadata(connection, mint));
       });
       
       const batchResults = await Promise.all(batchPromises);
-      nfts.push(...batchResults.filter(Boolean) as NFT[]);
+      const validNfts = batchResults.filter(Boolean) as NFT[];
+      nfts.push(...validNfts);
       
-      // Small delay to avoid rate limiting
+      // Longer delay between batches to avoid rate limiting
       if (i + batchSize < nftAccounts.length) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
     
-    // Filter for Pookie collection NFTs if collection address is specified
-    const filteredNfts = POOKIE_COLLECTION_ADDRESS 
-      ? nfts.filter(nft => nft.collectionAddress === POOKIE_COLLECTION_ADDRESS)
-      : nfts;
-      
-    return filteredNfts;
+    // Filter for Pookie collection NFTs and sort by name
+    return nfts
+      .filter(nft => nft.collectionAddress === POOKIE_COLLECTION_ADDRESS)
+      .sort((a, b) => a.name.localeCompare(b.name));
     
   } catch (error) {
-    console.error('Error fetching NFTs:', error)
-    return []
+    console.error('Error fetching NFTs:', error);
+    return [];
   }
 }
 
