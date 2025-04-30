@@ -6,7 +6,7 @@ import { fromWeb3JsPublicKey, toWeb3JsPublicKey } from '@metaplex-foundation/umi
 import type { Umi } from '@metaplex-foundation/umi'
 
 // The collection address for Pookie NFTs
-export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ'
+export const POOKIE_COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || 'a3a46b3ef956082d30f9483c9f4e23733343eb8bc1de331c3c1072959b76ea4d'
 
 // Token metadata program ID
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
