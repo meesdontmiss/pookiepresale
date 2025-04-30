@@ -60,7 +60,7 @@ export interface NFT {
   symbol?: string
   attributes?: any[]
   collectionAddress?: string | null
-  pookieNumber?: string | null
+  alternativeImageUrls?: string[]
 }
 
 // Token account interface
@@ -117,144 +117,202 @@ async function getMetadataPDA(mintAddress: string): Promise<PublicKey> {
 }
 
 /**
- * Parse the metadata for an NFT
+ * Get NFT metadata from account data using more robust approach
  */
 async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
+  console.log(`Starting metadata parse for mint: ${mintAddress}`);
   try {
-    // Use shared UMI instance
-    const umi = getUmi()
+    // Get the connection
+    const connection = getConnection();
     
+    // Get the metadata account address
+    const metadataPDA = await getMetadataPDA(mintAddress);
+    console.log(`Metadata PDA for ${mintAddress}: ${metadataPDA.toString()}`);
+    
+    // Fetch metadata account data directly from RPC
+    const accountInfo = await connection.getAccountInfo(metadataPDA);
+    if (!accountInfo) {
+      console.warn(`No metadata account found for mint: ${mintAddress}`);
+      return null;
+    }
+    
+    // If we got this far, we have an NFT with metadata
+    let collectionAddress = null;
+    
+    // Try to parse metadata with UMI
     try {
-      // Convert mint to UMI format
-      const mintPubKey = fromWeb3JsPublicKey(new PublicKey(mintAddress))
+      const umi = getUmi();
+      // Convert the metadata PDA to UMI public key format, not the mint
+      const metadataPDAUmi = fromWeb3JsPublicKey(metadataPDA);
+      const metadataAccount = await fetchMetadata(umi, metadataPDAUmi) as ExtendedMetadata;
       
-      // Fetch on-chain metadata
-      const metadataAccount = await fetchMetadata(umi, mintPubKey)
-      
-      // Extract collection information to check if it's a Pookie NFT
-      const collectionAddress = metadataAccount.collection?.key.toString() || null
-      
-      // Verify collection address matches Pookie
-      if (collectionAddress !== POOKIE_COLLECTION_ADDRESS) {
-        console.log(`NFT ${mintAddress} is not from Pookie collection. Found: ${collectionAddress}`)
-        return null
+      // Add error handling for undefined metadata
+      if (!metadataAccount) {
+        console.log(`No metadata found for ${mintAddress} at PDA ${metadataPDA.toString()}`);
+        return null;
       }
       
-      // Extract NFT number from name for better image matching
-      const metadataName = metadataAccount.name.toString().replace(/\0/g, '').trim()
-      const nameMatch = metadataName.match(/Pookie #(\d+)/i)
-      const pookieNumber = nameMatch ? nameMatch[1] : null
+      // Check if it's in the Pookie collection - with null checks
+      collectionAddress = metadataAccount.collection?.key?.toString() || null;
       
-      // Get metadata URI
-      const uri = metadataAccount.uri.toString().replace(/\0/g, '').trim()
+      // Primary check - by collection address
+      let isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
+      let nameBasedDetection = false;
       
-      // Normalize arweave URLs
-      let normalizedUri = uri
-      if (uri.includes('arweave.net')) {
-        normalizedUri = uri.replace('https://www.arweave.net/', 'https://arweave.net/')
-      }
-      
-      try {
-        // Try to fetch NFT metadata from URI
-        const response = await axios.get(normalizedUri, { 
-          timeout: 5000,
-          headers: { 'Accept': 'application/json' }  
-        })
+      // Fallback check - if collection is null, try to identify by name or creators
+      if (!isPookieNFT) {
+        const name = metadataAccount.name.toString().toLowerCase();
+        const symbol = metadataAccount.symbol.toString().toLowerCase();
         
-        const metadata = response.data
+        console.log(`NFT name check: "${name}", symbol: "${symbol}" for ${mintAddress}`);
         
-        // Extract and normalize the image URL
-        let imageUrl = metadata.image || ''
+        // Check if name or symbol contains "pookie" with more variations
+        const namePookieCheck = name.includes("pookie") || 
+                               name.includes("pook ") || 
+                               name.includes("pook#") || 
+                               name.startsWith("pook") ||
+                               !!name.match(/pook\s*#\d+/); // Convert to boolean with !!
+                               
+        const symbolPookieCheck = symbol === "pookie" || 
+                                 symbol === "pook" || 
+                                 symbol.includes("pook");
         
-        // Check for alternate image locations in metadata
-        if (!imageUrl && metadata.properties?.files?.length > 0) {
-          // Check files array for image
-          for (const file of metadata.properties.files) {
-            if (typeof file === 'object' && file.uri && (
-                file.type === 'image/png' || 
-                file.type === 'image/jpeg' || 
-                file.type === 'image/gif' || 
-                file.uri.endsWith('.png') || 
-                file.uri.endsWith('.jpg') || 
-                file.uri.endsWith('.jpeg') || 
-                file.uri.endsWith('.gif')
-            )) {
-              imageUrl = file.uri
-              break
-            } else if (typeof file === 'string' && (
-                file.endsWith('.png') || 
-                file.endsWith('.jpg') || 
-                file.endsWith('.jpeg') || 
-                file.endsWith('.gif')
-            )) {
-              imageUrl = file
-              break
+        // Check creators if they exist - ACTUAL Pookie creator addresses
+        let creatorPookieCheck = false;
+        if (metadataAccount.creators && metadataAccount.creators.length > 0) {
+          // Real Pookie creator addresses
+          const knownPookieCreators = [
+            "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address (old)
+            "a3a46b3ef956082d30f9483c9f4e23733343eb8bc1de331c3c1072959b76ea4d", // Current Collection Address
+            "9s9i1WBU14UNx6a3tK1rhcJ3fCq4MnVTYUJAq6L3HzFH", // Known Pookie creator
+            "HFuhNX69bH7BJ9wh4mGqzKRqFJWAufnDw3r1pVhTPGN1" // Additional Pookie creator
+          ];
+          
+          for (const creator of metadataAccount.creators) {
+            const creatorAddress = creator.address.toString();
+            console.log(`Checking creator: ${creatorAddress} for ${mintAddress}`);
+            if (knownPookieCreators.includes(creatorAddress)) {
+              creatorPookieCheck = true;
+              break;
             }
           }
         }
         
-        // If no image found but we have the Pookie number, use known format
-        if ((!imageUrl || imageUrl.length === 0) && pookieNumber) {
-          imageUrl = `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.png`
-          console.log(`Using derived image URL for Pookie #${pookieNumber}: ${imageUrl}`)
+        // Combine all checks
+        isPookieNFT = namePookieCheck || symbolPookieCheck || creatorPookieCheck;
+        
+        if (isPookieNFT) {
+          nameBasedDetection = true;
+          console.log(`Found Pookie NFT by secondary check: ${mintAddress}, name: ${name}, symbol: ${symbol}`);
+        }
+      }
+      
+      if (!isPookieNFT) {
+        console.log(`Not a Pookie NFT: ${mintAddress}, collection: ${collectionAddress}`);
+        return null;
+      }
+      
+      // Clean the URI to get the JSON metadata
+      const uri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
+      console.log(`Metadata URI for ${mintAddress}: ${uri}`);
+      
+      try {
+        // Fetch metadata from URI
+        const response = await axios.get(uri, { timeout: 5000 });
+        const metadata = response.data;
+        
+        // UNIFIED IMAGE HANDLING APPROACH - regardless of detection method
+        let imageUrl = metadata.image || '/images/pookie-smashin.gif';
+        console.log(`Original image URL: ${imageUrl} for ${mintAddress}`);
+        
+        // Store alternative image URLs that the client can try
+        const alternativeImageUrls = [];
+        
+        // Add the original image first if it exists
+        if (metadata.image) alternativeImageUrls.push(metadata.image);
+        
+        // Add any additional image URLs from metadata
+        if (metadata.image_url) alternativeImageUrls.push(metadata.image_url);
+        if (metadata.imageUrl) alternativeImageUrls.push(metadata.imageUrl);
+        if (metadata.image_uri) alternativeImageUrls.push(metadata.image_uri);
+        if (metadata.imageUri) alternativeImageUrls.push(metadata.imageUri);
+        
+        // Add gateway variations for IPFS URLs
+        if (imageUrl && imageUrl.includes('ipfs://')) {
+          const ipfsHash = imageUrl.replace('ipfs://', '');
+          // Use multiple gateways for better chances of success
+          alternativeImageUrls.push(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`);
+          alternativeImageUrls.push(`https://cloudflare-ipfs.com/ipfs/${ipfsHash}`);
+          alternativeImageUrls.push(`https://ipfs.io/ipfs/${ipfsHash}`);
         }
         
-        // Normalize arweave URLs in image too
-        if (imageUrl && imageUrl.includes('arweave.net')) {
-          imageUrl = imageUrl.replace('https://www.arweave.net/', 'https://arweave.net/')
+        // Add Arweave fallback
+        alternativeImageUrls.push('https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs');
+        
+        // Don't transform URLs that are already working
+        if (imageUrl.includes('pinit.io') || 
+            imageUrl.includes('arweave.net') || 
+            imageUrl.includes('cloudflare-ipfs.com') ||
+            (imageUrl.startsWith('http') && !imageUrl.includes('ipfs'))) {
+          console.log(`Using original working image URL: ${imageUrl}`);
+        }
+        // Handle IPFS URLs
+        else if (imageUrl && imageUrl.includes('ipfs://')) {
+          // Try multiple gateways in case one fails
+          const ipfsHash = imageUrl.replace('ipfs://', '');
+          // Use pinata gateway which has been more reliable
+          imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+          console.log(`Converted IPFS URL to Pinata: ${imageUrl}`);
+        }
+        // Handle Arweave URLs
+        else if (imageUrl && imageUrl.includes('ar://')) {
+          const arweaveHash = imageUrl.replace('ar://', '');
+          imageUrl = `https://arweave.net/${arweaveHash}`;
+          console.log(`Converted Arweave URL to: ${imageUrl}`);
+        }
+        // Ensure image URL is properly formatted for relative paths
+        else if (imageUrl && !imageUrl.startsWith('http') && !imageUrl.startsWith('/')) {
+          // Assume it's an IPFS hash if not http or relative path
+          imageUrl = `https://gateway.pinata.cloud/ipfs/${imageUrl}`;
+          console.log(`Treating as IPFS hash: ${imageUrl}`);
         }
         
-        // Check if imageUrl is just an Arweave transaction ID
-        if (imageUrl && /^[a-zA-Z0-9_-]{43}$/.test(imageUrl)) {
-          imageUrl = `https://arweave.net/${imageUrl}`
-          console.log(`Normalized URL to: ${imageUrl}`)
-        }
-        
-        console.log(`Final image URL: ${imageUrl} for ${mintAddress}`)
+        console.log(`Final image URL: ${imageUrl} for ${mintAddress}`);
         
         // Save with direct image URL if available in other properties
         const directImageUrl = metadata.image_url || metadata.imageUrl || 
-                               metadata.image_uri || metadata.imageUri || 
-                               metadata.uri || metadata.url || imageUrl
+                              metadata.image_uri || metadata.imageUri || 
+                              metadata.uri || metadata.url || imageUrl;
         
-        // Add pookieNumber to NFT data for easier reference
         return {
           mint: mintAddress,
-          name: metadata.name || metadataName,
-          symbol: metadata.symbol || metadataAccount.symbol.toString().replace(/\0/g, '').trim() || '',
+          name: metadata.name || metadataAccount.name.toString(),
+          symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
           image: directImageUrl,
           attributes: metadata.attributes || [],
           collectionAddress,
-          pookieNumber: pookieNumber
-        }
+          alternativeImageUrls
+        };
       } catch (uriError) {
-        console.error(`Error fetching URI for ${mintAddress}:`, uriError)
-        
-        // Create fallback data using on-chain info and pookieNumber if available
-        let fallbackImage = 'https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs'
-        
-        // If we have a Pookie number, construct direct image URL
-        if (pookieNumber) {
-          fallbackImage = `https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs/${pookieNumber}.png`
-        }
-        
-        // Return basic metadata with fallback image
+        console.error(`Error fetching URI for ${mintAddress}:`, uriError);
+        // Return basic metadata if we can't fetch the URI
         return {
           mint: mintAddress,
-          name: metadataName,
-          image: fallbackImage,
-          symbol: metadataAccount.symbol.toString().replace(/\0/g, '').trim() || '',
-          collectionAddress,
-          pookieNumber: pookieNumber
-        }
+          name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
+          image: 'https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs',  // Known working Pookie image
+          symbol: metadataAccount.symbol.toString() || '',
+          collectionAddress
+        };
       }
     } catch (umiError) {
-      console.error(`Error using UMI for ${mintAddress}:`, umiError)
-      return null
+      console.error(`Error using UMI for ${mintAddress}:`, umiError);
+      
+      // Don't assume it's a Pookie NFT if we can't verify
+      return null;
     }
   } catch (error) {
-    console.error(`Error parsing NFT metadata for ${mintAddress}:`, error)
-    return null
+    console.error(`Error parsing NFT metadata for ${mintAddress}:`, error);
+    return null;
   }
 }
 

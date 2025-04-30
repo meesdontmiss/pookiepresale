@@ -5,8 +5,69 @@ import { POOKIE_COLLECTION_ADDRESS, getConnection, getUmi } from '@/utils/solana
 import { fetchMetadata } from '@metaplex-foundation/mpl-token-metadata'
 import { fromWeb3JsPublicKey } from '@metaplex-foundation/umi-web3js-adapters'
 
-// Known metadata fallback paths for Pookie NFTs
-const KNOWN_METADATA_BASE = 'https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs';
+/**
+ * Validate and clean image URL
+ */
+function processImageUrl(imageUrl: string | null | undefined): string | null {
+  if (!imageUrl) return null;
+  
+  try {
+    // Remove any null terminators and trim
+    const cleaned = imageUrl.toString().replace(/\0/g, '').trim();
+    
+    if (!cleaned || cleaned.length === 0) return null;
+    
+    // Check if it's a valid URL or path
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://') || cleaned.startsWith('/')) {
+      return cleaned;
+    }
+    
+    // Handle arweave and ipfs
+    if (cleaned.startsWith('ar://')) {
+      return `https://arweave.net/${cleaned.substring(5)}`;
+    }
+    
+    if (cleaned.startsWith('ipfs://')) {
+      // Convert IPFS to HTTP gateway URL
+      return `https://ipfs.io/ipfs/${cleaned.substring(7)}`;
+    }
+    
+    return null;
+  } catch (e) {
+    console.error('[processImageUrl] Error processing image URL:', e);
+    return null;
+  }
+}
+
+/**
+ * Validate metadata to ensure it has required fields
+ */
+function isValidMetadata(data: any): boolean {
+  // Basic structural check
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  
+  // Check for common NFT metadata fields
+  if (!data.name) {
+    console.warn('[Metadata API] Metadata missing name field');
+    return false;
+  }
+  
+  // If it has attributes, it's very likely to be NFT metadata
+  if (Array.isArray(data.attributes)) {
+    return true;
+  }
+  
+  // Check for other common Metaplex metadata fields
+  if (data.image || data.animation_url || data.properties) {
+    return true;
+  }
+  
+  // Could add more checks for specific Pookie NFT signatures
+  
+  return false;
+}
 
 /**
  * Fetch metadata using mint address
@@ -28,96 +89,74 @@ async function fetchNftMetadataByMint(mintAddress: string) {
     }
     
     // Get metadata URI
-    let cleanedUri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
+    const cleanedUri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
     if (!cleanedUri || cleanedUri.length === 0) {
       throw new Error(`Empty metadata URI for mint: ${mintAddress}`);
     }
     
-    // Normalize Arweave URI if needed
-    if (cleanedUri.includes('arweave.net')) {
-      if (cleanedUri.includes('https://www.arweave.net/')) {
-        cleanedUri = cleanedUri.replace('https://www.arweave.net/', 'https://arweave.net/');
-      }
+    // Log URI for debugging
+    console.log(`[Metadata API] URI for ${mintAddress}: ${cleanedUri}`);
+    
+    // Fetch JSON metadata using URI with extended timeout and retry
+    let response;
+    try {
+      response = await axios.get(cleanedUri, { timeout: 15000 });
+    } catch (firstError) {
+      console.warn(`[Metadata API] First attempt to fetch URI failed: ${cleanedUri}`, firstError);
+      // Retry once with longer timeout
+      response = await axios.get(cleanedUri, { timeout: 20000 });
     }
     
-    // Fetch JSON metadata using URI
-    try {
-      const response = await axios.get(cleanedUri, { timeout: 10000 });
-      
-      // Verify if this is a Pookie NFT (collection check)
-      const collectionKey = metadataAccount.collection?.key.toString();
-      const isPookieByCollection = collectionKey === POOKIE_COLLECTION_ADDRESS;
-      
-      // Extract NFT number from name if available
-      const metadataName = metadataAccount.name.toString().replace(/\0/g, '').trim();
-      const nameMatch = metadataName.match(/Pookie #(\d+)/i);
-      const nftNumber = nameMatch ? nameMatch[1] : null;
-      
-      // Ensure image URL is valid
-      let imageUrl = response.data.image || null;
-      
-      if (!imageUrl && nftNumber) {
-        // Try to construct known image URL pattern for Pookie NFTs
-        imageUrl = `${KNOWN_METADATA_BASE}/${nftNumber}.png`;
-      }
-      
+    // Process and validate response data
+    const metadata = response.data;
+    
+    // Validate metadata structure
+    if (!isValidMetadata(metadata)) {
+      console.warn(`[Metadata API] Invalid metadata structure for ${mintAddress}`);
+      // Return minimal valid metadata with on-chain info
       return {
-        ...response.data,
         mint: mintAddress,
-        onChainName: metadataName,
-        onChainSymbol: metadataAccount.symbol.toString().replace(/\0/g, '').trim(),
-        collectionAddress: collectionKey,
-        isPookieNFT: isPookieByCollection,
-        nftNumber: nftNumber,
-        image: imageUrl || response.data.image
+        name: metadataAccount.name.toString() || `NFT ${mintAddress.slice(0, 6)}`,
+        symbol: metadataAccount.symbol.toString() || '',
+        image: null,
+        onChainName: metadataAccount.name.toString(),
+        onChainSymbol: metadataAccount.symbol.toString(),
+        isPookieNFT: true // Assume it's valid since it's in our collection
       };
-    } catch (fetchError) {
-      console.error(`[Metadata API] Error fetching JSON from URI ${cleanedUri}:`, fetchError);
-      
-      // If URI fetch fails, try to use on-chain data and NFT number for fallback
-      const metadataName = metadataAccount.name.toString().replace(/\0/g, '').trim();
-      const nameMatch = metadataName.match(/Pookie #(\d+)/i);
-      const nftNumber = nameMatch ? nameMatch[1] : null;
-      
-      let fallbackMetadata = {
-        mint: mintAddress,
-        name: metadataName,
-        symbol: metadataAccount.symbol.toString().replace(/\0/g, '').trim(),
-        collectionAddress: metadataAccount.collection?.key.toString(),
-        uri: cleanedUri,
-        nftNumber: nftNumber,
-      };
-      
-      // Try to load a fallback image if we have an NFT number
-      if (nftNumber) {
-        try {
-          const fallbackUri = `${KNOWN_METADATA_BASE}/${nftNumber}.json`;
-          const fallbackResponse = await axios.get(fallbackUri, { timeout: 5000 });
-          return {
-            ...fallbackResponse.data,
-            mint: mintAddress,
-            onChainName: metadataName,
-            onChainSymbol: metadataAccount.symbol.toString().replace(/\0/g, '').trim(),
-            collectionAddress: metadataAccount.collection?.key.toString(),
-            isPookieNFT: metadataAccount.collection?.key.toString() === POOKIE_COLLECTION_ADDRESS,
-            nftNumber: nftNumber,
-            uri: cleanedUri,
-            fallbackUsed: true
-          };
-        } catch (fallbackError) {
-          console.error(`[Metadata API] Fallback also failed for ${nftNumber}:`, fallbackError);
-          // Use fixed path if fallback fails
-          return {
-            ...fallbackMetadata,
-            image: `${KNOWN_METADATA_BASE}/${nftNumber}.png`, // Try direct image path
-            fallbackUsed: true
-          };
-        }
-      }
-      
-      // Return basic metadata if we couldn't get full data
-      return fallbackMetadata;
     }
+    
+    // Process and validate image URLs
+    const rawImageUrl = metadata.image;
+    const imageUrl = processImageUrl(rawImageUrl);
+    
+    // Check for alternative image URLs
+    const alternativeImageUrls = [
+      metadata.image_url,
+      metadata.imageUrl,
+      metadata.image_uri,
+      metadata.imageUri,
+    ].map(url => processImageUrl(url)).filter(Boolean);
+    
+    // Verify if this is a Pookie NFT (collection check)
+    const collectionKey = metadataAccount.collection?.key.toString();
+    const isPookieByCollection = collectionKey === POOKIE_COLLECTION_ADDRESS;
+    
+    if (!isPookieByCollection) {
+      console.warn(`[Metadata API] Not a Pookie NFT: ${mintAddress}`);
+      // Return basic data anyway so client can decide
+    }
+    
+    return {
+      ...metadata,
+      mint: mintAddress,
+      onChainName: metadataAccount.name.toString(),
+      onChainSymbol: metadataAccount.symbol.toString(),
+      collectionAddress: collectionKey,
+      isPookieNFT: isPookieByCollection,
+      // Include all potential image URLs for client to try
+      imageUrl: imageUrl,
+      alternativeImageUrls: alternativeImageUrls,
+    };
   } catch (error) {
     console.error(`[Metadata API] Error fetching metadata for mint ${mintAddress}:`, error);
     throw error;
@@ -128,56 +167,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const uri = searchParams.get('uri')
   const mint = searchParams.get('mint')
-  const name = searchParams.get('name') // Add support for name-based lookup
 
   // Return error if neither URI nor mint is provided
-  if (!uri && !mint && !name) {
-    return NextResponse.json({ error: 'Missing URI, mint, or name parameter' }, { status: 400 })
-  }
-
-  // Name-based lookup for Pookie NFTs
-  if (name && !mint && !uri) {
-    try {
-      // Extract number from "Pookie #123" format
-      const nameMatch = name.match(/Pookie #(\d+)/i);
-      const nftNumber = nameMatch ? nameMatch[1] : null;
-      
-      if (!nftNumber) {
-        return NextResponse.json({ error: 'Invalid name format. Expected "Pookie #123"' }, { status: 400 });
-      }
-      
-      // Try to fetch metadata for this NFT number
-      const metadataUrl = `${KNOWN_METADATA_BASE}/${nftNumber}.json`;
-      
-      try {
-        const response = await axios.get(metadataUrl, { timeout: 5000 });
-        
-        return NextResponse.json({
-          ...response.data,
-          nftNumber,
-          lookupMethod: 'name'
-        }, {
-          headers: {
-            'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_APP_URL || '*',
-            'Access-Control-Allow-Methods': 'GET',
-            'Cache-Control': 's-maxage=300, stale-while-revalidate=600'
-          }
-        });
-      } catch (e) {
-        return NextResponse.json({ 
-          error: 'Failed to fetch NFT metadata by name',
-          name,
-          nftNumber,
-          fallbackImage: `${KNOWN_METADATA_BASE}/${nftNumber}.png`
-        }, { status: 404 });
-      }
-    } catch (error: any) {
-      console.error(`[Metadata API] Error handling name lookup for ${name}:`, error);
-      return NextResponse.json({ 
-        error: 'Failed to process name-based lookup',
-        message: error.message || 'Unknown error'
-      }, { status: 500 });
-    }
+  if (!uri && !mint) {
+    return NextResponse.json({ error: 'Missing URI or mint parameter' }, { status: 400 })
   }
 
   // If mint is provided, use mint-based fetching
@@ -201,7 +194,8 @@ export async function GET(request: NextRequest) {
       console.error(`[Metadata API] Error handling mint ${mint}:`, error);
       return NextResponse.json({ 
         error: 'Failed to fetch NFT metadata by mint',
-        message: error.message || 'Unknown error'
+        message: error.message || 'Unknown error',
+        mint: mint, // Include mint in response to help client with retries
       }, { status: 500 })
     }
   }
@@ -234,26 +228,6 @@ export async function GET(request: NextRequest) {
          return NextResponse.json({ error: `Gateway error: ${response.status}` }, { status: response.status })
       }
 
-      // Extract NFT number from metadata name or URI if available
-      let nftNumber = null;
-      if (response.data?.name && typeof response.data.name === 'string') {
-        const nameMatch = response.data.name.match(/Pookie #(\d+)/i);
-        nftNumber = nameMatch ? nameMatch[1] : null;
-      }
-      
-      if (!nftNumber && decodedUri.includes('/')) {
-        // Try to extract from URI path like "/123.json"
-        const pathMatch = decodedUri.match(/\/(\d+)\.json$/);
-        nftNumber = pathMatch ? pathMatch[1] : null;
-      }
-      
-      // Add the NFT number to the response if found
-      const enrichedResponse = {
-        ...response.data,
-        nftNumber,
-        uriUsed: decodedUri
-      };
-
       // Return the fetched metadata
       const headers = {
         'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_APP_URL || '*',
@@ -261,7 +235,7 @@ export async function GET(request: NextRequest) {
         'Cache-Control': 's-maxage=60, stale-while-revalidate=300',
       };
       
-      return NextResponse.json(enrichedResponse, { headers });
+      return NextResponse.json(response.data, { headers });
 
     } catch (error: any) {
       console.error(`[Metadata API] Error fetching metadata via proxy for ${decodedUri}:`, error);
@@ -274,20 +248,7 @@ export async function GET(request: NextRequest) {
           message = 'Gateway timeout fetching metadata';
         }
       }
-      
-      // Try to extract NFT number from URI if it's in a known format
-      let nftNumber = null;
-      if (decodedUri.includes('/')) {
-        const pathMatch = decodedUri.match(/\/(\d+)\.json$/);
-        nftNumber = pathMatch ? pathMatch[1] : null;
-      }
-      
-      return NextResponse.json({ 
-        error: message, 
-        uri: decodedUri,
-        nftNumber,
-        fallbackImage: nftNumber ? `${KNOWN_METADATA_BASE}/${nftNumber}.png` : null
-      }, { status });
+      return NextResponse.json({ error: message }, { status });
     }
   }
 } 
