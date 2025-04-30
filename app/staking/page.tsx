@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo } from "react"
 import { useWallet } from "@solana/wallet-adapter-react"
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
@@ -203,11 +202,6 @@ export default function StakingPage() {
               <ChevronLeftIcon size={16} className="mr-1" />
               <span className="text-xs">Back Home</span>
             </Link>
-            
-            {/* Wallet Button */}
-            <div className="wallet-button-container">
-              <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-3 py-1 h-8" />
-            </div>
           </div>
         </div>
       </div>
@@ -222,9 +216,9 @@ export default function StakingPage() {
             className="glass p-6 rounded-lg border-glow shadow-glow"
           >
             {/* Render on-chain NFT Staking */}
-            <h2 className="text-center text-2xl font-bold text-primary text-glow mb-6">NFT Staking</h2>
-            <div className="space-y-4">
-              <OnChainNftStaking />
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <h1 className="text-4xl font-bold text-primary mb-4">NFT Staking</h1>
+              <p className="text-xl text-muted-foreground mb-6">Connect your wallet to view and manage your staked NFTs.</p>
             </div>
           </motion.div>
         </div>

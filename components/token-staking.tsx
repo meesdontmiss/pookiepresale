@@ -21,7 +21,6 @@ import {
   calculateTokens, 
   formatTokenAmount 
 } from '@/utils/token-supply'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { Progress } from "@/components/ui/progress"
 
 // Sound path
@@ -471,9 +470,6 @@ export default function TokenStaking() {
         <div className="p-6 rounded-lg bg-background/50 backdrop-blur-md border border-primary/30 text-center max-w-md">
           <h2 className="text-2xl font-bold text-primary mb-4">Connect Your Wallet</h2>
           <p className="mb-6 text-white/80">Connect your wallet to view your staking options and rewards.</p>
-          <div className="flex justify-center">
-            <WalletMultiButton className="px-6 py-3 bg-primary hover:bg-primary/80 text-black font-bold rounded-md transition-all" />
-          </div>
         </div>
       </div>
     )
@@ -683,7 +679,7 @@ export default function TokenStaking() {
             
             <Button
               className="w-full mt-6 bg-primary hover:bg-primary/80 text-black font-bold"
-              onClick={handleStakeTokens}
+              onClick={(e) => { e.preventDefault(); handleStakeTokens(); }}
               disabled={isStaking || stakingAmount <= 0}
             >
               {isStaking ? (
