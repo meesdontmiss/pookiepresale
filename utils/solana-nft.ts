@@ -217,11 +217,28 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
         const response = await axios.get(uri, { timeout: 5000 });
         const metadata = response.data;
         
+        // Fix and normalize image URL
+        let imageUrl = metadata.image || '/images/pookie-smashin.gif';
+        
+        // Ensure image URL is properly formatted with https if it's not already
+        if (imageUrl && !imageUrl.startsWith('http')) {
+          imageUrl = imageUrl.startsWith('/') 
+            ? `https://na-assets.pinit.io${imageUrl}` 
+            : `https://na-assets.pinit.io/${imageUrl}`;
+        }
+        
+        // Fix Pinata/IPFS gateway issues
+        if (imageUrl && imageUrl.includes('ipfs://')) {
+          imageUrl = imageUrl.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+        }
+        
+        console.log(`Using image URL: ${imageUrl} for ${mintAddress}`);
+        
         return {
           mint: mintAddress,
           name: metadata.name || metadataAccount.name.toString(),
           symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
-          image: metadata.image || '/images/pookie-smashin.gif', // Fallback image
+          image: imageUrl,
           attributes: metadata.attributes || [],
           collectionAddress
         };
