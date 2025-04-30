@@ -142,8 +142,7 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       
       // Check if it's in the Pookie collection
       collectionAddress = metadataAccount.collection?.key.toString() || null;
-      const isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS ||
-                         metadataAccount.name.toString().toLowerCase().includes('pookie');
+      const isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
       
       if (!isPookieNFT) {
         console.log(`Not a Pookie NFT: ${mintAddress}, collection: ${collectionAddress}`);
@@ -181,15 +180,8 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
     } catch (umiError) {
       console.error(`Error using UMI for ${mintAddress}:`, umiError);
       
-      // If we made it here but couldn't parse with UMI, 
-      // we'll count it as a potentially valid NFT without metadata
-      return {
-        mint: mintAddress,
-        name: `Pookie #${mintAddress.slice(0, 6)}`,
-        image: '/images/pookie-smashin.gif',
-        symbol: 'POOKIE',
-        collectionAddress: POOKIE_COLLECTION_ADDRESS // Assume it's in the collection
-      };
+      // Don't assume it's a Pookie NFT if we can't verify
+      return null;
     }
   } catch (error) {
     console.error(`Error parsing NFT metadata for ${mintAddress}:`, error);

@@ -36,10 +36,8 @@ async function fetchNftMetadataByMint(mintAddress: string) {
     // Verify if this is a Pookie NFT (collection check)
     const collectionKey = metadataAccount.collection?.key.toString();
     const isPookieByCollection = collectionKey === POOKIE_COLLECTION_ADDRESS;
-    const isPookieByName = (metadataAccount.name.toString().toLowerCase().includes('pookie') || 
-                           response.data?.name?.toLowerCase().includes('pookie'));
     
-    if (!isPookieByCollection && !isPookieByName) {
+    if (!isPookieByCollection) {
       console.warn(`[Metadata API] Not a Pookie NFT: ${mintAddress}`);
       // Return basic data anyway so client can decide
     }
@@ -50,7 +48,7 @@ async function fetchNftMetadataByMint(mintAddress: string) {
       onChainName: metadataAccount.name.toString(),
       onChainSymbol: metadataAccount.symbol.toString(),
       collectionAddress: collectionKey,
-      isPookieNFT: isPookieByCollection || isPookieByName
+      isPookieNFT: isPookieByCollection
     };
   } catch (error) {
     console.error(`[Metadata API] Error fetching metadata for mint ${mintAddress}:`, error);
