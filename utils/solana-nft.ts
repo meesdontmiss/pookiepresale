@@ -1,7 +1,8 @@
 import { Connection, PublicKey } from '@solana/web3.js'
 import axios from 'axios'
+import type { Umi } from '@metaplex-foundation/umi'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
-import { fetchMetadata, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
+import { fetchMetadata, mplTokenMetadata, TokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
 import { publicKey as umiPublicKey } from '@metaplex-foundation/umi'
 import { createWeb3JsRpc } from '@metaplex-foundation/umi-rpc-web3js'
 
@@ -21,22 +22,45 @@ export interface NFT {
   collectionAddress?: string | null
 }
 
+// Token account interface
+interface TokenAccount {
+  account: {
+    data: {
+      parsed: {
+        info: {
+          mint: string
+          tokenAmount: {
+            uiAmount: number
+            decimals: number
+          }
+        }
+      }
+    }
+  }
+}
+
 /**
  * Get NFT metadata from account data using Umi
  */
 async function parseNFTMetadata(connection: Connection, mintAddress: string): Promise<NFT | null> {
   try {
-    // Create a Umi instance
+    // Create a Umi instance with proper configuration
     const umi = createUmi(connection.rpcEndpoint)
       .use(mplTokenMetadata())
       .use({
-        install(umi) {
+        install(umi: Umi) {
           umi.rpc = createWeb3JsRpc(umi, connection);
         },
       });
 
+    // Convert mint address to UMI public key
+    const mintPubKey = umiPublicKey(mintAddress);
+
     // Fetch metadata using Umi
-    const metadataAccount = await fetchMetadata(umi, umiPublicKey(mintAddress));
+    const metadataAccount = await fetchMetadata(umi, mintPubKey).catch((error: Error) => {
+      console.warn(`Error fetching metadata for ${mintAddress}:`, error);
+      return null;
+    });
 
     if (!metadataAccount) {
       console.warn(`No metadata account found for mint: ${mintAddress}`);
@@ -44,37 +68,64 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
     }
 
     // Clean the URI: Remove null terminators and whitespace
-    const cleanedUri = metadataAccount.uri.replace(/\0/g, '').trim();
+    const cleanedUri = metadataAccount.uri.toString().replace(/\0/g, '').trim();
     
     try {
-      // Fetch actual metadata from the URI using axios
-      const response = await axios.get(cleanedUri);
-      const metadata = response.data;
+      // Fetch actual metadata from the URI using axios with retries
+      const fetchMetadataWithRetry = async (retries = 3): Promise<any> => {
+        try {
+          const response = await axios.get(cleanedUri, { timeout: 5000 });
+          return response.data;
+        } catch (error) {
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return fetchMetadataWithRetry(retries - 1);
+          }
+          throw error;
+        }
+      };
+
+      const metadata = await fetchMetadataWithRetry();
 
       // Check if this NFT belongs to the Pookie collection
-      const isPookieNFT = metadataAccount.collection?.key === POOKIE_COLLECTION_ADDRESS;
+      const collectionKey = metadataAccount.collection?.key.toString();
+      const isPookieNFT = collectionKey === POOKIE_COLLECTION_ADDRESS;
       
       if (!isPookieNFT) {
-        return null; // Skip non-Pookie NFTs
+        console.log(`Skipping non-Pookie NFT: ${mintAddress}, collection: ${collectionKey}`);
+        return null;
       }
 
-      return {
+      // Construct NFT object with verified data
+      const nft: NFT = {
         mint: mintAddress,
-        name: metadata.name || metadataAccount.name,
-        symbol: metadata.symbol || metadataAccount.symbol || '',
-        image: metadata.image || '/images/pookie-smashin.gif', // Fallback to placeholder if no image
+        name: metadata.name || metadataAccount.name.toString(),
+        symbol: metadata.symbol || metadataAccount.symbol.toString() || '',
+        image: metadata.image || '/images/pookie-smashin.gif', // Fallback to placeholder
         attributes: metadata.attributes || [],
         collectionAddress: POOKIE_COLLECTION_ADDRESS
       };
+
+      // Validate image URL
+      if (nft.image && !nft.image.startsWith('/')) {
+        try {
+          await axios.head(nft.image);
+        } catch (error) {
+          console.warn(`Invalid image URL for ${mintAddress}, using fallback`);
+          nft.image = '/images/pookie-smashin.gif';
+        }
+      }
+
+      return nft;
 
     } catch (uriError) {
       console.error(`Error fetching metadata URI for ${mintAddress}:`, uriError);
       // Return basic metadata if URI fetch fails
       return {
         mint: mintAddress,
-        name: metadataAccount.name || `Pookie #${mintAddress.slice(0, 6)}`,
+        name: metadataAccount.name.toString() || `Pookie #${mintAddress.slice(0, 6)}`,
         image: '/images/pookie-smashin.gif', // Fallback image
-        symbol: metadataAccount.symbol || '',
+        symbol: metadataAccount.symbol.toString() || '',
         collectionAddress: POOKIE_COLLECTION_ADDRESS
       };
     }
@@ -94,7 +145,11 @@ async function parseNFTMetadata(connection: Connection, mintAddress: string): Pr
  * Fetch NFTs owned by a wallet using Solana RPC with retry logic
  */
 export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> {
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+  const connection = new Connection(SOLANA_RPC_URL, {
+    commitment: 'confirmed',
+    confirmTransactionInitialTimeout: 60000,
+  });
+  
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000;
   
@@ -122,19 +177,19 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
     );
     
     // Filter for NFTs (amount = 1)
-    const nftAccounts = tokenAccounts.value.filter(tokenAccount => {
+    const nftAccounts = tokenAccounts.value.filter((tokenAccount: TokenAccount) => {
       const amount = tokenAccount.account.data.parsed.info.tokenAmount;
       return amount.uiAmount === 1 && amount.decimals === 0;
     });
     
     // Process NFTs in parallel with rate limiting
     const nfts: NFT[] = [];
-    const batchSize = 3; // Reduced batch size to avoid rate limits
+    const batchSize = 2; // Reduced batch size to avoid rate limits
     
     for (let i = 0; i < nftAccounts.length; i += batchSize) {
       const batch = nftAccounts.slice(i, i + batchSize);
       
-      const batchPromises = batch.map(async (tokenAccount) => {
+      const batchPromises = batch.map(async (tokenAccount: TokenAccount) => {
         const mint = tokenAccount.account.data.parsed.info.mint;
         return await fetchWithRetry(() => parseNFTMetadata(connection, mint));
       });
@@ -145,14 +200,17 @@ export async function fetchNFTsForWallet(walletAddress: string): Promise<NFT[]> 
       
       // Longer delay between batches to avoid rate limiting
       if (i + batchSize < nftAccounts.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     
     // Filter for Pookie collection NFTs and sort by name
-    return nfts
+    const pookieNfts = nfts
       .filter(nft => nft.collectionAddress === POOKIE_COLLECTION_ADDRESS)
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    console.log(`Found ${pookieNfts.length} Pookie NFTs out of ${nfts.length} total NFTs`);
+    return pookieNfts;
     
   } catch (error) {
     console.error('Error fetching NFTs:', error);
