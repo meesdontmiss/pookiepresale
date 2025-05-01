@@ -350,9 +350,21 @@ export default function OnChainNftStaking() {
       console.error('Error staking NFT:', error)
       playSound(ERROR_SOUND_PATH, 0.3)
       
-      let errorMessage = "An error occurred while staking your NFT."
+      let errorMessage = "An error occurred while staking your NFT.";
+      // Attempt to get more specific error details
       if (error instanceof Error) {
-        errorMessage = error.message
+        errorMessage = error.message;
+        // Check if logs are available (specific error types might have them)
+        if ('getLogs' in error && typeof error.getLogs === 'function') {
+          try {
+            const logs = await error.getLogs();
+            console.error("Transaction Logs:", logs);
+            // You could potentially parse logs here for specific program errors
+            errorMessage += ` (Logs: ${logs.slice(0, 5).join(', ')}...)`; // Show first few logs
+          } catch (logError) {
+            console.error("Failed to get transaction logs:", logError);
+          }
+        }
       }
       
       toast({
@@ -578,6 +590,16 @@ export default function OnChainNftStaking() {
         failCount++;
         console.error(`Error claiming rewards for ${nft.mint}:`, error);
         let errorMessage = error.message || "An unknown error occurred.";
+        // Check if logs are available
+        if ('getLogs' in error && typeof error.getLogs === 'function') {
+          try {
+            const logs = await error.getLogs();
+            console.error(`Logs for failed claim of ${nft.mint}:`, logs);
+            errorMessage += ` (Logs: ${logs.slice(0, 5).join(', ')}...)`;
+          } catch (logError) {
+            console.error("Failed to get transaction logs:", logError);
+          }
+        }
         // Optional: Individual error toast
         // toast({ title: "Claim Error", description: `Failed for ${nft.name}: ${errorMessage}`, variant: "destructive" });
       } finally {
@@ -659,6 +681,16 @@ export default function OnChainNftStaking() {
         failCount++;
         console.error(`Error staking ${nft.mint}:`, error);
         let errorMessage = error.message || "An unknown error occurred.";
+        // Check if logs are available
+        if ('getLogs' in error && typeof error.getLogs === 'function') {
+          try {
+            const logs = await error.getLogs();
+            console.error(`Logs for failed stake of ${nft.mint}:`, logs);
+            errorMessage += ` (Logs: ${logs.slice(0, 5).join(', ')}...)`;
+          } catch (logError) {
+            console.error("Failed to get transaction logs:", logError);
+          }
+        }
         // Optional: Individual error toast
         // toast({ title: "Stake Error", description: `Failed for ${nft.name}: ${errorMessage}`, variant: "destructive" });
       } finally {
@@ -700,8 +732,8 @@ export default function OnChainNftStaking() {
     return `${Math.floor(secondsAgo / 86400)} days ago`
   }
   
-  // Update the NFT card component
-  const NftCard = ({ 
+  // Update the NFT card component - Wrap with React.memo
+  const NftCard = React.memo(({ 
     nft, 
     isStaked = false, 
     isSelected = false, // New prop for selection state
@@ -752,22 +784,25 @@ export default function OnChainNftStaking() {
     
     // Function to handle image load errors with retry and URL cycling
     const handleImageError = () => {
-      // Try the next URL in our list
-      if (currentImageIndex < possibleImageUrls.length - 1) {
-        setCurrentImageIndex(prev => prev + 1);
-        console.log(`Trying alternative URL for ${nft.name}: ${possibleImageUrls[currentImageIndex + 1]}`);
-      } 
-      // Or retry with the same URL if we haven't exceeded retries
-      else if (retryCount < maxRetries) {
-        setRetryCount(prev => prev + 1);
-        console.log(`Retrying image load for ${nft.name}, attempt ${retryCount + 1}/${maxRetries}`);
-      } 
-      // Use fallback after exhausting all options
-      else {
-        setImageError(true);
-        setImageLoaded(true);
-        console.log(`Using fallback image for ${nft.name} after all attempts failed`);
-      }
+      // Add a small delay before trying the next URL or retry
+      setTimeout(() => {
+        // Try the next URL in our list
+        if (currentImageIndex < possibleImageUrls.length - 1) {
+          setCurrentImageIndex(prev => prev + 1);
+          console.log(`Trying alternative URL for ${nft.name}: ${possibleImageUrls[currentImageIndex + 1]}`);
+        } 
+        // Or retry with the same URL if we haven't exceeded retries
+        else if (retryCount < maxRetries) {
+          setRetryCount(prev => prev + 1);
+          console.log(`Retrying image load for ${nft.name}, attempt ${retryCount + 1}/${maxRetries}`);
+        } 
+        // Use fallback after exhausting all options
+        else {
+          setImageError(true);
+          setImageLoaded(true);
+          console.log(`Using fallback image for ${nft.name} after all attempts failed`);
+        }
+      }, 300); // Increased delay slightly (300ms)
     };
 
     // Compute the current image source based on our fallback strategy
@@ -859,7 +894,8 @@ export default function OnChainNftStaking() {
         </CardFooter>
       </Card>
     );
-  };
+  });
+  NftCard.displayName = 'NftCard'; // Good practice for debugging memoized components
   
   // Update the grid rendering component
   const renderNftGrid = (nfts: StakedNFT[], isStaked = false) => {
@@ -1084,11 +1120,17 @@ export default function OnChainNftStaking() {
                     </Button>
                   </div>
                 )}
-                {renderNftGrid(walletNfts, false)}
+                {/* Add scroll container */}
+                <div className="max-h-[60vh] overflow-y-auto pr-2"> 
+                  {renderNftGrid(walletNfts, false)}
+                </div>
               </TabsContent>
               
               <TabsContent value="staked" className="mt-0">
-                {renderNftGrid(stakedNfts, true)}
+                {/* Add scroll container */}
+                <div className="max-h-[60vh] overflow-y-auto pr-2">
+                  {renderNftGrid(stakedNfts, true)}
+                </div>
               </TabsContent>
             </motion.div>
           </AnimatePresence>

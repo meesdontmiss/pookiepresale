@@ -230,11 +230,11 @@ export async function createStakeNftTransaction(
         { pubkey: userNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: nftMint, isSigner: false, isWritable: false },
         { pubkey: stakingAccount, isSigner: false, isWritable: true },
-        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-        { pubkey: programAuthority, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
       data: instructionData,
@@ -593,10 +593,40 @@ export async function hasEnoughSol(
     if (!connection) throw new Error('Connection object is required');
     if (!wallet) throw new Error('Wallet public key is required');
 
+    // Constants for calculation
+    const STAKE_ACCOUNT_SIZE = 89; // 1 (bool) + 32 (owner) + 32 (mint) + 8 (stake_time) + 8 (last_claim_time)
+    const FEES_BUFFER = 5000 + 10000; // Base fee + buffer for compute/priority
+
+    // Get current balance
     const balance = await connection.getBalance(wallet);
-    const minimumBalance = 0.005 * 10 ** 9;
-    console.log(`Wallet balance: ${balance / (10**9)} SOL, Minimum required: ${minimumBalance / (10**9)} SOL`);
-    return balance >= minimumBalance;
+
+    // Calculate rent needed for the stake account
+    const rentExemptionCost = await connection.getMinimumBalanceForRentExemption(STAKE_ACCOUNT_SIZE);
+
+    // Estimate max cost (rent for new stake account + fees)
+    // Note: Rent is only paid if the stake account doesn't exist yet.
+    // This check assumes the worst case (needs to pay rent).
+    const estimatedMaxCost = rentExemptionCost + FEES_BUFFER;
+    
+    console.log(`Wallet balance: ${balance / (10**9)} SOL`);
+    console.log(`Estimated max cost (Rent + Fees): ${estimatedMaxCost / (10**9)} SOL`);
+
+    if (balance < estimatedMaxCost) {
+      console.warn("Potential low balance for first-time stake rent + fees.");
+      // You could be stricter here and return false, or just warn.
+      // Let's be stricter to prevent failures:
+      return false; 
+    } else {
+      // Also check against a basic minimum even if rent might not be needed
+      const basicMinimum = 0.001 * (10 ** 9); // e.g., 0.001 SOL minimum always
+      if (balance < basicMinimum) {
+        console.warn("Balance below basic minimum.");
+        return false;
+      }
+    }
+    
+    return true; // Sufficient balance for worst-case or basic minimum
+
   } catch (error) {
     console.error(`Error checking SOL balance using endpoint ${connection.rpcEndpoint}:`, error);
     return false;
