@@ -319,8 +319,14 @@ export default function OnChainNftStaking() {
       
       // --- Play success sound & Show Visual Confirmation --- 
       await playSuccessSound(); 
-      setStakedSuccessMint(nft.mint); // <-- Set success state
-      setTimeout(() => setStakedSuccessMint(null), 2500); // <-- Clear after 2.5 seconds
+      setStakedSuccessMint(nft.mint); 
+      
+      // --- Optimistic UI Update --- 
+      setWalletNfts(prevNfts => prevNfts.filter(walletNft => walletNft.mint !== nft.mint));
+      // Optionally add to stakedNfts state here too for immediate visual move, 
+      // but fetchWalletData will handle the accurate data soon.
+      
+      setTimeout(() => setStakedSuccessMint(null), 2500); 
 
       toast({
         title: "NFT Staked Successfully!",
@@ -328,7 +334,7 @@ export default function OnChainNftStaking() {
         variant: "default", 
       });
 
-      // Refresh data after successful stake (might run before timeout clears visual)
+      // Refresh data after successful stake (will confirm the optimistic update)
       setRefreshTrigger(prev => prev + 1); 
 
     } catch (error) {
