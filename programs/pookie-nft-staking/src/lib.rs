@@ -1,24 +1,27 @@
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
+    clock::Clock,
     entrypoint,
     entrypoint::ProgramResult,
     msg,
-    program::{invoke, invoke_signed},
+    program::invoke_signed,
     program_error::ProgramError,
-    program_pack::{IsInitialized, Pack},
+    program_pack::{IsInitialized, Pack, Sealed},
     pubkey::Pubkey,
-    sysvar::{rent::Rent, Sysvar, clock::Clock},
+    rent::Rent,
     system_instruction,
+    sysvar::Sysvar,
 };
-use std::{convert::TryInto, cmp::min};
+use spl_token::instruction as token_instruction;
 use thiserror::Error;
+use arrayref::{array_ref, array_refs, array_mut_ref, mut_array_refs};
 
 // Import our instruction module
 mod instruction;
 pub use instruction::StakingInstruction;
 
 // Define errors
-#[derive(Error, Debug, Clone, PartialEq)]
+#[derive(Error, Debug, Copy, Clone)]
 pub enum StakingError {
     #[error("Invalid instruction")]
     InvalidInstruction,
@@ -49,6 +52,15 @@ pub enum StakingError {
     
     #[error("Invalid token account owner")]
     InvalidTokenAccountOwner,
+
+    #[error("Lamport transfer calculation overflowed")]
+    LamportTransferOverflow,
+
+    #[error("Arithmetic overflow")]
+    ArithmeticOverflow,
+
+    #[error("Insufficient funds")]
+    InsufficientFunds,
 }
 
 impl From<StakingError> for ProgramError {
@@ -87,9 +99,7 @@ pub struct StakeAccount {
     pub last_claim_time: i64,
 }
 
-impl StakeAccount {
-    pub const LEN: usize = 1 + 32 + 32 + 8 + 8; // is_initialized + owner + nft_mint + stake_time + last_claim_time
-}
+impl Sealed for StakeAccount {}
 
 impl IsInitialized for StakeAccount {
     fn is_initialized(&self) -> bool {
@@ -98,30 +108,57 @@ impl IsInitialized for StakeAccount {
 }
 
 impl Pack for StakeAccount {
-    const LEN: usize = Self::LEN;
+    const LEN: usize = 1 + 32 + 32 + 8 + 8; // is_initialized + owner + nft_mint + stake_time + last_claim_time
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let is_initialized = src[0] != 0;
-        let owner = Pubkey::new(&src[1..33]);
-        let nft_mint = Pubkey::new(&src[33..65]);
-        let stake_time = i64::from_le_bytes(src[65..73].try_into().unwrap());
-        let last_claim_time = i64::from_le_bytes(src[73..81].try_into().unwrap());
+        let src = array_ref![src, 0, StakeAccount::LEN];
+        let (
+            is_initialized_src,
+            owner_src,
+            nft_mint_src,
+            stake_time_src,
+            last_claim_time_src,
+        ) = array_refs![src, 1, 32, 32, 8, 8];
+        
+        let is_initialized = is_initialized_src[0] != 0;
+        let owner = Pubkey::new_from_array(*owner_src);
+        let nft_mint = Pubkey::new_from_array(*nft_mint_src);
+        let stake_time = i64::from_le_bytes(*stake_time_src);
+        let last_claim_time = i64::from_le_bytes(*last_claim_time_src);
 
-        Ok(StakeAccount {
-            is_initialized,
-            owner,
-            nft_mint,
-            stake_time,
-            last_claim_time,
-        })
+        if is_initialized {
+            Ok(StakeAccount {
+                is_initialized,
+                owner,
+                nft_mint,
+                stake_time,
+                last_claim_time,
+            })
+        } else {
+            // Handle case where the account is not initialized, maybe return default or error
+            // For now, returning default if not initialized based on flag
+            Ok(StakeAccount::default()) // Or return an error like ProgramError::UninitializedAccount
+        }
     }
 
-    fn pack_into_slice(&self, dst: &mut [u8]) {
-        dst[0] = self.is_initialized as u8;
-        dst[1..33].copy_from_slice(self.owner.as_ref());
-        dst[33..65].copy_from_slice(self.nft_mint.as_ref());
-        dst[65..73].copy_from_slice(&self.stake_time.to_le_bytes());
-        dst[73..81].copy_from_slice(&self.last_claim_time.to_le_bytes());
+    fn pack_into_slice(&self, dst_slice: &mut [u8]) {
+        // Get a mutable reference to the part of the slice we need, as a fixed-size array
+        let dst_array_ref = array_mut_ref![dst_slice, 0, StakeAccount::LEN];
+
+        // Destructure the mutable array reference into mutable references to its parts
+        let (
+            is_initialized_dst,
+            owner_dst,
+            nft_mint_dst,
+            stake_time_dst,
+            last_claim_time_dst,
+        ) = mut_array_refs![dst_array_ref, 1, 32, 32, 8, 8]; // Apply to dst_array_ref
+
+        is_initialized_dst[0] = self.is_initialized as u8;
+        owner_dst.copy_from_slice(self.owner.as_ref());
+        nft_mint_dst.copy_from_slice(self.nft_mint.as_ref());
+        *stake_time_dst = self.stake_time.to_le_bytes();
+        *last_claim_time_dst = self.last_claim_time.to_le_bytes();
     }
 }
 
@@ -157,28 +194,35 @@ fn validate_token_account(
     expected_owner: &Pubkey,
     expected_mint: &Pubkey,
     token_program: &AccountInfo,
+    check_balance: bool, // Add flag to optionally check balance
 ) -> Result<(), ProgramError> {
-    // Check if this is a valid token account
     if token_account.owner != token_program.key {
         msg!("Token account not owned by token program");
         return Err(StakingError::InvalidTokenAccount.into());
     }
 
-    // Read token account data to get mint and owner
     let token_account_data = token_account.try_borrow_data()?;
     
-    // SPL Token account data structure has mint at bytes 0-32
-    let account_mint = Pubkey::new(&token_account_data[..32]);
+    let account_mint = Pubkey::new_from_array(*array_ref![token_account_data, 0, 32]);
     if account_mint != *expected_mint {
         msg!("Token account mint does not match expected mint");
         return Err(StakingError::InvalidMint.into());
     }
     
-    // Owner is at bytes 32-64
-    let account_owner = Pubkey::new(&token_account_data[32..64]);
+    let account_owner = Pubkey::new_from_array(*array_ref![token_account_data, 32, 32]);
     if account_owner != *expected_owner {
         msg!("Token account owner does not match expected owner");
         return Err(StakingError::InvalidTokenAccountOwner.into());
+    }
+
+    // Optionally check if the account holds exactly 1 token
+    if check_balance {
+        let amount = u64::from_le_bytes(*array_ref![token_account_data, 64, 8]);
+        if amount != 1 {
+            msg!("NFT Token account does not hold exactly one token");
+            // Consider a more specific error, reusing InvalidTokenAccount for now
+            return Err(StakingError::InvalidTokenAccount.into()); 
+        }
     }
 
     Ok(())
@@ -189,27 +233,30 @@ fn stake_nft(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
 ) -> ProgramResult {
+    msg!("Instruction: Stake NFT (Non-Transfer)");
     let accounts_iter = &mut accounts.iter();
 
-    // Get accounts
+    // Get accounts (Removed pda_token_account)
     let user = next_account_info(accounts_iter)?;
     let nft_token_account = next_account_info(accounts_iter)?;
     let nft_mint = next_account_info(accounts_iter)?;
     let stake_account = next_account_info(accounts_iter)?;
     let token_program = next_account_info(accounts_iter)?;
-    let pda_token_account = next_account_info(accounts_iter)?;
     let rent_info = next_account_info(accounts_iter)?;
     let system_program = next_account_info(accounts_iter)?;
     let clock_info = next_account_info(accounts_iter)?;
 
-    // Verify account ownership and signatures
     if !user.is_signer {
         msg!("User must be signer");
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    // Verify the token account belongs to the user and matches the NFT mint
-    validate_token_account(nft_token_account, user.key, nft_mint.key, token_program)?;
+    // Verify the user's token account: check owner, mint, and that they hold exactly 1 token.
+    // This implicitly checks that the account is not frozen because frozen accounts can't have their balance read easily?
+    // Re-verify this assumption - getAccountInfo should work on frozen accounts.
+    // A better check might be needed if frozen accounts are still an issue for reading data.
+    // For now, rely on validate_token_account with check_balance = true
+    validate_token_account(nft_token_account, user.key, nft_mint.key, token_program, true)?;
 
     // Compute stake account PDA
     let (stake_account_pda, bump_seed) = find_stake_account_address(
@@ -223,26 +270,23 @@ fn stake_nft(
         return Err(StakingError::InvalidPDA.into());
     }
 
-    // Get program authority PDA for signing
-    let (authority_pda, authority_bump) = find_program_authority(program_id);
-
-    // Check if program token account belongs to the authority and matches the NFT mint
-    validate_token_account(pda_token_account, &authority_pda, nft_mint.key, token_program)?;
+    // REMOVED program authority PDA derivation - not needed for signing transfers
+    // REMOVED program's NFT token account validation - not used
 
     // Create stake account if it doesn't exist
     if stake_account.data_is_empty() {
+        msg!("Creating new stake account PDA");
         let rent = &Rent::from_account_info(rent_info)?;
         let space = StakeAccount::LEN;
         let lamports = rent.minimum_balance(space);
 
-        // Create account with PDA
         invoke_signed(
             &system_instruction::create_account(
-                user.key,
-                stake_account.key,
+                user.key, // Payer
+                stake_account.key, // New account address
                 lamports,
                 space as u64,
-                program_id,
+                program_id, // Owner
             ),
             &[
                 user.clone(),
@@ -256,47 +300,39 @@ fn stake_nft(
                 &[bump_seed],
             ]],
         )?;
+        msg!("Stake account PDA created");
     } else {
         // If account exists, make sure it's not already initialized
+        // Use unpack_unchecked because we only care about the is_initialized flag here
         let stake_data = StakeAccount::unpack_unchecked(&stake_account.data.borrow())?;
         if stake_data.is_initialized {
-            msg!("Stake account is already initialized");
+            msg!("Stake account is already initialized for this NFT");
             return Err(StakingError::AlreadyInitialized.into());
         }
+        // If not initialized, we'll overwrite it later
+        msg!("Stake account PDA exists but is uninitialized. Proceeding.");
     }
     
-    // Transfer NFT to program PDA token account
-    invoke(
-        &spl_token::instruction::transfer(
-            token_program.key,
-            nft_token_account.key,
-            pda_token_account.key,
-            user.key,
-            &[],
-            1,
-        )?,
-        &[
-            nft_token_account.clone(),
-            pda_token_account.clone(),
-            user.clone(),
-            token_program.clone(),
-        ],
-    )?;
+    // REMOVED NFT Transfer instruction
 
     // Get current time
     let clock = Clock::from_account_info(clock_info)?;
     let current_time = clock.unix_timestamp;
 
     // Initialize stake account data
-    let mut stake_data = StakeAccount::unpack_unchecked(&stake_account.data.borrow())?;
-    stake_data.is_initialized = true;
-    stake_data.owner = *user.key;
-    stake_data.nft_mint = *nft_mint.key;
-    stake_data.stake_time = current_time;
-    stake_data.last_claim_time = current_time;
+    msg!("Initializing stake account data");
+    // No need to unpack_unchecked again, just create the data directly
+    let stake_data = StakeAccount {
+        is_initialized: true,
+        owner: *user.key,
+        nft_mint: *nft_mint.key,
+        stake_time: current_time,
+        last_claim_time: current_time,
+    };
     StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
+    msg!("Stake account data initialized successfully");
 
-    msg!("NFT staked successfully!");
+    msg!("NFT Staked (Non-Transfer) Successfully!");
     Ok(())
 }
 
@@ -305,74 +341,69 @@ fn unstake_nft(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
 ) -> ProgramResult {
+    msg!("Instruction: Unstake NFT (Non-Transfer)");
     let accounts_iter = &mut accounts.iter();
 
-    // Get accounts
+    // Get accounts (Removed pda_token_account and program_authority)
     let user = next_account_info(accounts_iter)?;
     let nft_token_account = next_account_info(accounts_iter)?;
     let nft_mint = next_account_info(accounts_iter)?;
     let stake_account = next_account_info(accounts_iter)?;
-    let pda_token_account = next_account_info(accounts_iter)?;
     let token_program = next_account_info(accounts_iter)?;
-    let clock_info = next_account_info(accounts_iter)?;
 
-    // Verify account ownership and signatures
     if !user.is_signer {
         msg!("User must be signer");
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    // Verify the token account belongs to the user and matches the NFT mint
-    validate_token_account(nft_token_account, user.key, nft_mint.key, token_program)?;
+    // Verify the user's token account still holds the NFT
+    // Check owner, mint, and balance = 1
+    validate_token_account(nft_token_account, user.key, nft_mint.key, token_program, true)?;
+
+    // Verify stake account PDA matches
+    let (stake_account_pda, _bump_seed) = find_stake_account_address(
+        nft_mint.key,
+        user.key,
+        program_id,
+    );
+    if stake_account_pda != *stake_account.key {
+        msg!("Stake account address does not match the derived PDA");
+        return Err(StakingError::InvalidPDA.into());
+    }
 
     // Verify stake account belongs to this user and NFT
+    // Use unpack here as we need the data if valid
     let stake_data = StakeAccount::unpack(&stake_account.data.borrow())?;
     if !stake_data.is_initialized {
         msg!("Stake account is not initialized");
         return Err(StakingError::NotInitialized.into());
     }
-    
     if stake_data.owner != *user.key || stake_data.nft_mint != *nft_mint.key {
-        msg!("Stake account does not belong to this user or NFT");
+        msg!("Stake account data does not match user or NFT mint");
         return Err(StakingError::InvalidOwner.into());
     }
 
-    // Get program authority PDA for signing
-    let (authority_pda, authority_bump) = find_program_authority(program_id);
-
-    // Check if program token account belongs to the authority and matches the NFT mint
-    validate_token_account(pda_token_account, &authority_pda, nft_mint.key, token_program)?;
-
-    // Transfer NFT back to user
-    invoke_signed(
-        &spl_token::instruction::transfer(
-            token_program.key,
-            pda_token_account.key,
-            nft_token_account.key,
-            &authority_pda,
-            &[],
-            1,
-        )?,
-        &[
-            pda_token_account.clone(),
-            nft_token_account.clone(),
-            token_program.clone(),
-        ],
-        &[&[b"authority", &[authority_bump]]],
-    )?;
+    // REMOVED program authority PDA derivation
+    // REMOVED program's NFT token account validation
+    // REMOVED NFT Transfer back to user instruction
 
     // Close stake account and return lamports to user
-    **user.lamports.borrow_mut() = user.lamports()
-        .checked_add(stake_account.lamports())
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    **stake_account.lamports.borrow_mut() = 0;
+    msg!("Closing stake account and returning lamports");
+    let stake_lamports = stake_account.lamports();
+    **stake_account.try_borrow_mut_lamports()? = 0; // Drain the account
 
-    // Clear out the stake account data
-    let mut stake_data = stake_data;
-    stake_data.is_initialized = false;
-    StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
+    let mut user_lamports = user.try_borrow_mut_lamports()?;
+    **user_lamports = user_lamports
+        .checked_add(stake_lamports)
+        .ok_or(StakingError::LamportTransferOverflow)?; // Use custom error
 
-    msg!("NFT unstaked successfully!");
+    // Explicitly mark account as closed/uninitialized by zeroing data
+    // The runtime garbage collector will eventually reclaim the zeroed account
+    let mut stake_data_mut = stake_account.data.borrow_mut();
+    stake_data_mut.fill(0);
+    msg!("Stake account zeroed");
+
+    msg!("NFT Unstaked (Non-Transfer) Successfully!");
     Ok(())
 }
 
@@ -381,22 +412,35 @@ fn claim_rewards(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
 ) -> ProgramResult {
+    msg!("Instruction: Claim Rewards (Non-Transfer)");
     let accounts_iter = &mut accounts.iter();
 
     // Get accounts
     let user = next_account_info(accounts_iter)?;
+    let nft_token_account = next_account_info(accounts_iter)?;
     let nft_mint = next_account_info(accounts_iter)?;
     let stake_account = next_account_info(accounts_iter)?;
-    let reward_token_mint = next_account_info(accounts_iter)?;
     let user_reward_account = next_account_info(accounts_iter)?;
     let treasury_account = next_account_info(accounts_iter)?;
+    let reward_token_mint = next_account_info(accounts_iter)?;
     let token_program = next_account_info(accounts_iter)?;
+    let program_authority = next_account_info(accounts_iter)?;
     let clock_info = next_account_info(accounts_iter)?;
 
-    // Verify account ownership and signatures
     if !user.is_signer {
         msg!("User must be signer");
         return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    // Verify stake account PDA matches
+    let (stake_account_pda, _bump_seed) = find_stake_account_address(
+        nft_mint.key,
+        user.key,
+        program_id,
+    );
+    if stake_account_pda != *stake_account.key {
+        msg!("Stake account address does not match the derived PDA");
+        return Err(StakingError::InvalidPDA.into());
     }
 
     // Verify stake account belongs to this user and NFT
@@ -405,104 +449,99 @@ fn claim_rewards(
         msg!("Stake account is not initialized");
         return Err(StakingError::NotInitialized.into());
     }
-    
     if stake_data.owner != *user.key || stake_data.nft_mint != *nft_mint.key {
-        msg!("Stake account does not belong to this user or NFT");
+        msg!("Stake account data does not match user or NFT mint");
         return Err(StakingError::InvalidOwner.into());
     }
 
+    // Verify user still owns the NFT
+    msg!("Verifying user still owns the NFT...");
+    validate_token_account(nft_token_account, user.key, nft_mint.key, token_program, true)?;
+    msg!("User NFT ownership verified.");
+
     // Verify the user reward account belongs to the user and matches the reward token mint
-    validate_token_account(user_reward_account, user.key, reward_token_mint.key, token_program)?;
+    validate_token_account(user_reward_account, user.key, reward_token_mint.key, token_program, false)?;
 
     // Get program authority PDA for signing
     let (authority_pda, authority_bump) = find_program_authority(program_id);
+    if authority_pda != *program_authority.key {
+        msg!("Invalid program authority PDA provided");
+        return Err(StakingError::InvalidPDA.into());
+    }
 
     // Verify the treasury account belongs to the authority and matches the reward token mint
-    validate_token_account(treasury_account, &authority_pda, reward_token_mint.key, token_program)?;
+    validate_token_account(treasury_account, &authority_pda, reward_token_mint.key, token_program, false)?;
 
     // Calculate rewards
     let clock = Clock::from_account_info(clock_info)?;
     let current_time = clock.unix_timestamp;
-    let seconds_since_last_claim = current_time - stake_data.last_claim_time;
-    
-    // Convert seconds to days (rounded down)
-    let days = seconds_since_last_claim / 86400;
-    
-    // Calculate rewards: 250 tokens per day
-    let reward_per_day = 250;
-    let rewards = reward_per_day * days;
-    
-    // Only process if there are rewards to claim
-    if rewards > 0 {
-        // Check if treasury has enough tokens
-        let treasury_data = treasury_account.try_borrow_data()?;
-        // Amount field in a token account is at offset 64 and is a u64
-        let treasury_amount = u64::from_le_bytes(treasury_data[64..72].try_into().unwrap());
-        
-        if treasury_amount < rewards as u64 {
-            msg!("Treasury has insufficient funds for full reward payout");
-            // If treasury has some funds, pay out what's available
-            if treasury_amount > 0 {
-                msg!("Paying out partial rewards: {}", treasury_amount);
-                
-                // Transfer available rewards from treasury to user
-                invoke_signed(
-                    &spl_token::instruction::transfer(
-                        token_program.key,
-                        treasury_account.key,
-                        user_reward_account.key,
-                        &authority_pda,
-                        &[],
-                        treasury_amount,
-                    )?,
-                    &[
-                        treasury_account.clone(),
-                        user_reward_account.clone(),
-                        token_program.clone(),
-                    ],
-                    &[&[b"authority", &[authority_bump]]],
-                )?;
-                
-                // Update last claim time proportionally to what was paid
-                let paid_days = (treasury_amount as f64 / reward_per_day as f64).floor() as i64;
-                if paid_days > 0 {
-                    stake_data.last_claim_time += paid_days * 86400;
-                    StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
-                }
-                
-                msg!("Claimed {} tokens in rewards (partial payout)", treasury_amount);
-                return Ok(());
-            } else {
-                return Err(StakingError::InsufficientRewards.into());
-            }
-        }
-        
-        // Transfer rewards from treasury to user
-        invoke_signed(
-            &spl_token::instruction::transfer(
-                token_program.key,
-                treasury_account.key,
-                user_reward_account.key,
-                &authority_pda,
-                &[],
-                rewards as u64,
-            )?,
-            &[
-                treasury_account.clone(),
-                user_reward_account.clone(),
-                token_program.clone(),
-            ],
-            &[&[b"authority", &[authority_bump]]],
-        )?;
-        
-        // Update last claim time
-        stake_data.last_claim_time = current_time;
-        StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
-        
-        msg!("Claimed {} tokens in rewards", rewards);
-    } else {
-        msg!("No rewards available to claim yet");
+    let last_claim_time = stake_data.last_claim_time;
+
+    // TODO: Make reward rate configurable (e.g., read from another account)
+    const SECONDS_PER_DAY: i64 = 86400; // 24 * 60 * 60
+    const REWARD_RATE_PER_DAY: u64 = 10 * 10u64.pow(9); // 10 tokens per day (assuming 9 decimals)
+
+    if current_time <= last_claim_time {
+        msg!("No time elapsed since last claim, no rewards to claim.");
+        return Ok(()); // Not an error, just no rewards yet
     }
 
+    let time_staked = current_time.checked_sub(last_claim_time)
+        .ok_or(StakingError::ArithmeticOverflow)?; // Should not happen
+
+    // Calculate reward amount based on time staked
+    // Using u128 for intermediate calculation to prevent overflow
+    let reward_amount_u128 = (time_staked as u128)
+        .checked_mul(REWARD_RATE_PER_DAY as u128)
+        .ok_or(StakingError::ArithmeticOverflow)?
+        .checked_div(SECONDS_PER_DAY as u128)
+        .ok_or(StakingError::ArithmeticOverflow)?; // Avoid division by zero, though SECONDS_PER_DAY is constant
+        
+    let reward_amount: u64 = reward_amount_u128
+        .try_into() // Remove explicit type <u64>
+        .map_err(|_| StakingError::ArithmeticOverflow)?; // Convert back to u64
+
+    if reward_amount == 0 {
+        msg!("Calculated reward amount is zero (duration too short?)");
+        // Optionally update last_claim_time even if reward is 0 to prevent tiny claims?
+        // stake_data.last_claim_time = current_time;
+        // StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
+        return Ok(());
+    }
+
+    // Check if treasury has enough balance
+    let treasury_data = treasury_account.try_borrow_data()?;
+    let treasury_balance = u64::from_le_bytes(*array_ref![treasury_data, 64, 8]);
+    if treasury_balance < reward_amount {
+        msg!("Treasury balance insufficient to pay rewards");
+        return Err(StakingError::InsufficientFunds.into());
+    }
+
+    // Transfer rewards from treasury to user
+    msg!("Transferring {} reward tokens from treasury to user", reward_amount);
+    invoke_signed(
+        &token_instruction::transfer(
+            token_program.key,
+            treasury_account.key,
+            user_reward_account.key,
+            &authority_pda,
+            &[],
+            reward_amount,
+        )?,
+        &[
+            treasury_account.clone(),
+            user_reward_account.clone(),
+            program_authority.clone(), // Authority needs to be signer
+            token_program.clone(),
+        ],
+        &[&[b"authority", &[authority_bump]]],
+    )?;
+
+    // Update last claim time in stake account
+    stake_data.last_claim_time = current_time;
+    StakeAccount::pack(stake_data, &mut stake_account.data.borrow_mut())?;
+    msg!("Last claim time updated");
+
+    msg!("Rewards Claimed Successfully!");
     Ok(())
 } 

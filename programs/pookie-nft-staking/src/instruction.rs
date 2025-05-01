@@ -2,47 +2,45 @@ use solana_program::{
     program_error::ProgramError,
     pubkey::Pubkey,
 };
-use std::convert::TryInto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StakingInstruction {
-    /// Stake an NFT
+    /// Stake an NFT (Non-Transfer Model)
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` The owner of the NFT
-    /// 1. `[writable]` The owner's NFT token account
+    /// 0. `[signer, writable]` The owner of the NFT (payer for PDA creation)
+    /// 1. `[]` The owner's NFT token account (checked for ownership)
     /// 2. `[]` The NFT mint address
-    /// 3. `[writable]` The stake account (PDA)
+    /// 3. `[writable]` The stake account (PDA, created if needed)
     /// 4. `[]` SPL Token program
-    /// 5. `[writable]` PDA token account to hold the NFT
-    /// 6. `[]` Rent sysvar
-    /// 7. `[]` System program
-    /// 8. `[]` Clock sysvar
+    /// 5. `[]` Rent sysvar
+    /// 6. `[]` System program
+    /// 7. `[]` Clock sysvar
     StakeNft,
 
-    /// Unstake an NFT and return it to the owner
+    /// Unstake an NFT (Non-Transfer Model)
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` The owner of the NFT
-    /// 1. `[writable]` The owner's NFT token account to receive the unstaked NFT
+    /// 0. `[signer, writable]` The owner of the NFT (receives lamports from closed PDA)
+    /// 1. `[]` The owner's NFT token account (checked for ownership)
     /// 2. `[]` The NFT mint address
-    /// 3. `[writable]` The stake account (PDA)
-    /// 4. `[writable]` PDA token account holding the NFT
-    /// 5. `[]` SPL Token program
-    /// 6. `[]` Clock sysvar
+    /// 3. `[writable]` The stake account (PDA, closed)
+    /// 4. `[]` SPL Token program
     UnstakeNft,
 
-    /// Claim rewards for a staked NFT
+    /// Claim rewards for a staked NFT (Non-Transfer Model)
     /// 
     /// Accounts expected:
-    /// 0. `[signer]` The owner of the NFT
-    /// 1. `[]` The NFT mint address
-    /// 2. `[writable]` The stake account (PDA)
-    /// 3. `[]` Reward token mint
+    /// 0. `[signer, writable]` The owner of the NFT
+    /// 1. `[]` The owner's NFT token account (checked for ownership)
+    /// 2. `[]` The NFT mint address
+    /// 3. `[writable]` The stake account (PDA, updated last_claim_time)
     /// 4. `[writable]` User's reward token account
     /// 5. `[writable]` Treasury account holding reward tokens
-    /// 6. `[]` SPL Token program
-    /// 7. `[]` Clock sysvar
+    /// 6. `[]` Reward token mint
+    /// 7. `[]` SPL Token program
+    /// 8. `[]` Program Authority (PDA, "authority")
+    /// 9. `[]` Clock sysvar
     ClaimRewards,
 }
 
