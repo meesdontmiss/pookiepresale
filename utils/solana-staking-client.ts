@@ -191,16 +191,6 @@ export async function createStakeNftTransaction(
       wallet
     );
 
-    // Find program authority PDA
-    const [programAuthority] = await findProgramAuthority();
-    
-    // Get or create the program's NFT token account
-    const programNftTokenAccount = await getAssociatedTokenAddress(
-      nftMint,
-      programAuthority,
-      true
-    );
-
     // Initialize transaction
     const transaction = new Transaction();
     
@@ -208,17 +198,6 @@ export async function createStakeNftTransaction(
     transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
     transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }));
     
-    // Check if program's NFT token account exists, if not add instruction to create it
-    // Always add the instruction to create the program's ATA (idempotent)
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-        wallet, // Payer
-        programNftTokenAccount, // ATA address
-        programAuthority, // Owner of the ATA
-        nftMint // Mint
-      )
-    );
-
     // Instruction data
     const instructionData = Buffer.from([StakingInstruction.StakeNft]);
 
@@ -226,11 +205,10 @@ export async function createStakeNftTransaction(
     transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: userNftTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: userNftTokenAccount, isSigner: false, isWritable: false },
         { pubkey: nftMint, isSigner: false, isWritable: false },
         { pubkey: stakingAccount, isSigner: false, isWritable: true },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
@@ -269,48 +247,36 @@ export async function createUnstakeNftTransaction(
       throw new Error(StakingError.InsufficientFunds);
     }
 
-    // Check if NFT is actually staked
+    // Check if NFT is staked
     if (!await isNftStaked(connection, wallet, nftMint)) {
       throw new Error('NFT is not staked.');
     }
 
     // Derive required accounts
     const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
-    const [programAuthority] = await findProgramAuthority();
 
     const userNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
       wallet
     );
 
-    const programNftTokenAccount = await getAssociatedTokenAddress(
-      nftMint,
-      programAuthority,
-      true
-    );
+    // Initialize transaction
+    const transaction = new Transaction();
+    
+    // Add compute budget instructions first (Optional but good practice)
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })); 
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 })); // Unstaking is usually less CU intensive
 
     // Instruction data
     const instructionData = Buffer.from([StakingInstruction.UnstakeNft]);
 
-    // Initialize transaction
-    const transaction = new Transaction();
-
-    // Add compute budget instructions first
-    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
-    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
-
-    // Ensure user has NFT token account (should exist if they staked, but check)
-    await ensureTokenAccount(connection, wallet, nftMint, transaction); 
-
     // Add unstake instruction
     transaction.add(new TransactionInstruction({
       keys: [
-        { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: userNftTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: wallet, isSigner: true, isWritable: true }, // User gets lamports back
+        { pubkey: userNftTokenAccount, isSigner: false, isWritable: false }, // User's NFT account, not writable by program
         { pubkey: nftMint, isSigner: false, isWritable: false },
-        { pubkey: stakingAccount, isSigner: false, isWritable: true },
-        { pubkey: programNftTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: programAuthority, isSigner: false, isWritable: false },
+        { pubkey: stakingAccount, isSigner: false, isWritable: true }, // Stake PDA is writable (closed)
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
