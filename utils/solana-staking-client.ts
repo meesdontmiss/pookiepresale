@@ -203,6 +203,10 @@ export async function createStakeNftTransaction(
     // Initialize transaction
     const transaction = new Transaction();
     
+    // Add compute budget instructions first
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+    
     // Check if program's NFT token account exists, if not add instruction to create it
     const programTokenAccountInfo = await connection.getAccountInfo(programNftTokenAccount);
     if (!programTokenAccountInfo) {
@@ -292,6 +296,10 @@ export async function createUnstakeNftTransaction(
     // Initialize transaction
     const transaction = new Transaction();
 
+    // Add compute budget instructions first
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+
     // Ensure user has NFT token account (should exist if they staked, but check)
     await ensureTokenAccount(connection, wallet, nftMint, transaction); 
 
@@ -364,6 +372,10 @@ export async function createClaimRewardsTransaction(
     // Initialize transaction
     const transaction = new Transaction();
 
+    // Add compute budget instructions first
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+
     // Ensure user has the reward token account
     await ensureTokenAccount(connection, wallet, REWARDS_TOKEN_MINT, transaction);
 
@@ -410,10 +422,6 @@ export async function sendTransaction(
   let retries = MAX_RETRIES;
   while (retries > 0) {
     try {
-      // Set priority fee
-      transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
-      transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
-
       // Get latest blockhash
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash(commitment);
       transaction.recentBlockhash = blockhash;
