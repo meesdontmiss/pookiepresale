@@ -152,59 +152,68 @@ async function parseNFTMetadata(mintAddress: string): Promise<NFT | null> {
       }
       
       // Check if it's in the Pookie collection - with null checks
-      collectionAddress = metadataAccount.collection?.key?.toString() || null;
+      // collectionAddress = metadataAccount.collection?.key?.toString() || null;
       
-      // Primary check - by collection address
-      let isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
+      // --- Start: Prioritize Name/Symbol/Creator Check ---
+      let isPookieNFT = false; // Initialize as false
+
+      const name = metadataAccount.name.toString().toLowerCase();
+      const symbol = metadataAccount.symbol.toString().toLowerCase();
       
-      // Fallback check - if collection is null, try to identify by name or creators
-      if (!isPookieNFT) {
-        const name = metadataAccount.name.toString().toLowerCase();
-        const symbol = metadataAccount.symbol.toString().toLowerCase();
+      console.log(`NFT name check: "${name}", symbol: "${symbol}" for ${mintAddress}`);
+      
+      // Check if name or symbol contains "pookie" with more variations
+      const namePookieCheck = name.includes("pookie") || 
+                              name.includes("pook ") || 
+                              name.includes("pook#") || 
+                              name.startsWith("pook") ||
+                              !!name.match(/pook\s*#\d+/); // Convert to boolean with !!
+                              
+      const symbolPookieCheck = symbol === "pookie" || 
+                                symbol === "pook" || 
+                                symbol.includes("pook");
+      
+      // Check creators if they exist - ACTUAL Pookie creator addresses
+      let creatorPookieCheck = false;
+      if (metadataAccount.creators && metadataAccount.creators.length > 0) {
+        // Real Pookie creator addresses
+        const knownPookieCreators = [
+          "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address
+          "9s9i1WBU14UNx6a3tK1rhcJ3fCq4MnVTYUJAq6L3HzFH", // Known Pookie creator
+          "HFuhNX69bH7BJ9wh4mGqzKRqFJWAufnDw3r1pVhTPGN1" // Additional Pookie creator
+        ];
         
-        console.log(`NFT name check: "${name}", symbol: "${symbol}" for ${mintAddress}`);
-        
-        // Check if name or symbol contains "pookie" with more variations
-        const namePookieCheck = name.includes("pookie") || 
-                               name.includes("pook ") || 
-                               name.includes("pook#") || 
-                               name.startsWith("pook") ||
-                               !!name.match(/pook\s*#\d+/); // Convert to boolean with !!
-                               
-        const symbolPookieCheck = symbol === "pookie" || 
-                                 symbol === "pook" || 
-                                 symbol.includes("pook");
-        
-        // Check creators if they exist - ACTUAL Pookie creator addresses
-        let creatorPookieCheck = false;
-        if (metadataAccount.creators && metadataAccount.creators.length > 0) {
-          // Real Pookie creator addresses
-          const knownPookieCreators = [
-            "ASky6aQmJxKn3cd1D7z6qoXnfV4EoWwe2RT1kM7BDWCQ", // Pookie Collection Address
-            "9s9i1WBU14UNx6a3tK1rhcJ3fCq4MnVTYUJAq6L3HzFH", // Known Pookie creator
-            "HFuhNX69bH7BJ9wh4mGqzKRqFJWAufnDw3r1pVhTPGN1" // Additional Pookie creator
-          ];
-          
-          for (const creator of metadataAccount.creators) {
-            const creatorAddress = creator.address.toString();
-            console.log(`Checking creator: ${creatorAddress} for ${mintAddress}`);
-            if (knownPookieCreators.includes(creatorAddress)) {
-              creatorPookieCheck = true;
-              break;
-            }
+        for (const creator of metadataAccount.creators) {
+          const creatorAddress = creator.address.toString();
+          console.log(`Checking creator: ${creatorAddress} for ${mintAddress}`);
+          if (knownPookieCreators.includes(creatorAddress)) {
+            creatorPookieCheck = true;
+            break;
           }
-        }
-        
-        // Combine all checks
-        isPookieNFT = namePookieCheck || symbolPookieCheck || creatorPookieCheck;
-        
-        if (isPookieNFT) {
-          console.log(`Found Pookie NFT by secondary check: ${mintAddress}, name: ${name}, symbol: ${symbol}`);
         }
       }
       
+      // Combine all checks
+      isPookieNFT = namePookieCheck || symbolPookieCheck || creatorPookieCheck;
+      
+      if (isPookieNFT) {
+        console.log(`Found Pookie NFT by secondary check: ${mintAddress}, name: ${name}, symbol: ${symbol}`);
+      }
+      // --- End: Prioritize Name/Symbol/Creator Check ---
+      
+      // Removed: Primary check by collection address
+      // let isPookieNFT = collectionAddress === POOKIE_COLLECTION_ADDRESS;
+      
+      // Removed: Fallback logic block, as the primary check is now the name/symbol/creator
+      /*
       if (!isPookieNFT) {
-        console.log(`Not a Pookie NFT: ${mintAddress}, collection: ${collectionAddress}`);
+        // ... fallback logic was here ...
+      }
+      */
+      
+      if (!isPookieNFT) {
+        // console.log(`Not a Pookie NFT based on name/symbol/creator: ${mintAddress}, collection: ${collectionAddress}`);
+        console.log(`Not a Pookie NFT based on name/symbol/creator: ${mintAddress}`);
         return null;
       }
       

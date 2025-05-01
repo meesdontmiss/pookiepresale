@@ -320,6 +320,15 @@ export default function OnChainNftStaking() {
         new PublicKey(nftMint)
       )
       
+      console.log("Constructed Stake Transaction:", transaction);
+      // Log instructions and keys for debugging
+      transaction.instructions.forEach((ix, index) => {
+        console.log(` Instruction ${index}: Program = ${ix.programId.toString()}`);
+        ix.keys.forEach((key, kIndex) => {
+          console.log(`  Key ${kIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+        });
+      });
+
       // Send transaction
       await sendTransaction(
         transaction, 
@@ -667,6 +676,15 @@ export default function OnChainNftStaking() {
           publicKey,
           new PublicKey(nft.mint)
         );
+
+        console.log(`Constructed Stake Transaction for ${nft.mint}:`, transaction);
+        // Log instructions and keys for debugging
+        transaction.instructions.forEach((ix, index) => {
+          console.log(` ${nft.mint} - Instruction ${index}: Program = ${ix.programId.toString()}`);
+          ix.keys.forEach((key, kIndex) => {
+            console.log(`  ${nft.mint} - Key ${kIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+          });
+        });
 
         const { signTransaction } = useWallet(); 
         if (!signTransaction) {

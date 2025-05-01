@@ -1,8 +1,12 @@
+"use client" // Make layout a client component to use hooks
+
 import type { Metadata } from "next"
+import { usePathname } from 'next/navigation' // Import usePathname
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
 // import "@/lib/rpc-patch"
 import "./globals.css"
+import { cn } from "@/lib/utils"; // Import cn for conditional classes
 
 export const metadata: Metadata = {
   title: "$POOKIE",
@@ -50,8 +54,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const pathname = usePathname(); // Get current path
+  const isStakingPage = pathname === '/staking'; // Check if it's the staking page
+
   return (
-    <html lang="en" className="cursor-middle-finger">
+    <html lang="en" className={cn(!isStakingPage && "cursor-middle-finger")}> {/* Conditionally apply class */}
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -73,7 +80,12 @@ export default function RootLayout({
         <meta name="twitter:site" content="@Pookiethepeng" />
         <meta name="twitter:image:alt" content="Pookie Memecoin" />
       </head>
-      <body className="min-h-screen bg-background antialiased cursor-middle-finger">
+      <body 
+        className={cn(
+          "min-h-screen bg-background antialiased",
+          !isStakingPage && "cursor-middle-finger" // Conditionally apply class
+        )}
+      >
         <WalletProvider>
           <GlobalSoundProvider />
           {children}
