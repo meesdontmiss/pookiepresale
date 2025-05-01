@@ -291,22 +291,43 @@ export default function OnChainNftStaking() {
         });
       });
 
+      // Assign fee payer and recent blockhash BEFORE simulation
+      try {
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.lastValidBlockHeight = lastValidBlockHeight;
+        transaction.feePayer = publicKey; // Assign fee payer
+      } catch (blockhashError) {
+        console.error("Failed to get latest blockhash:", blockhashError);
+        throw new Error("Could not fetch latest blockhash for simulation.");
+      }
+
       // === Add Explicit Simulation ===
       try {
         console.log("Simulating stake transaction...");
-        const { value: simulationResult, context } = await connection.simulateTransaction(transaction, 'confirmed');
+        const { value: simulationResult, context } = await connection.simulateTransaction(transaction); // Commitment defaults, or can be added as third arg if needed
         
         if (simulationResult.err) {
           console.error("Transaction simulation failed:", simulationResult.err);
           console.error("Simulation Logs:", simulationResult.logs);
-          throw new Error(`Transaction simulation failed: ${JSON.stringify(simulationResult.err)}`);
+          // Try to provide a more specific error if possible
+          let simErrorMsg = `Transaction simulation failed: ${JSON.stringify(simulationResult.err)}`;
+          if (simulationResult.logs) {
+            simErrorMsg += `\nLogs: ${simulationResult.logs.join('\n')}`;
+          }
+          throw new Error(simErrorMsg);
         } else {
           console.log("Transaction simulation successful. Logs:", simulationResult.logs);
         }
       } catch (simError) {
         console.error("Error during explicit simulation:", simError);
         // Rethrow or handle as appropriate, maybe display specific simulation error to user
-        throw simError; 
+        // Add check to prevent throwing the generic 'Invalid arguments' if caught here
+        if (simError instanceof Error && simError.message.includes('Invalid arguments')) {
+          throw new Error('Simulation failed due to invalid transaction structure (pre-flight).');
+        } else {
+          throw simError;
+        }
       }
       // === End Explicit Simulation ===
 
