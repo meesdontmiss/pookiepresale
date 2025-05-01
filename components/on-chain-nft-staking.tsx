@@ -291,6 +291,25 @@ export default function OnChainNftStaking() {
         });
       });
 
+      // === Add Explicit Simulation ===
+      try {
+        console.log("Simulating stake transaction...");
+        const { value: simulationResult, context } = await connection.simulateTransaction(transaction, 'confirmed');
+        
+        if (simulationResult.err) {
+          console.error("Transaction simulation failed:", simulationResult.err);
+          console.error("Simulation Logs:", simulationResult.logs);
+          throw new Error(`Transaction simulation failed: ${JSON.stringify(simulationResult.err)}`);
+        } else {
+          console.log("Transaction simulation successful. Logs:", simulationResult.logs);
+        }
+      } catch (simError) {
+        console.error("Error during explicit simulation:", simError);
+        // Rethrow or handle as appropriate, maybe display specific simulation error to user
+        throw simError; 
+      }
+      // === End Explicit Simulation ===
+
       // Send transaction
       await sendTransaction(
         transaction, 
