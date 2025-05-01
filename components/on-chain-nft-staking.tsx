@@ -81,6 +81,7 @@ export default function OnChainNftStaking() {
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0)
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
   const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({})
+  const [isClaimingAll, setIsClaimingAll] = useState<boolean>(false); // Loading state for Claim All
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
@@ -521,6 +522,82 @@ export default function OnChainNftStaking() {
     }
   }
   
+  // Handle claiming rewards for ALL staked NFTs
+  const handleClaimAllRewards = async () => {
+    if (!connected || !publicKey) {
+      toast({ title: "Wallet not connected", variant: "destructive" })
+      return
+    }
+    if (!hasSufficientBalance) {
+      toast({ title: "Insufficient SOL", description: "Not enough SOL for transaction fees", variant: "destructive" })
+      playSound(ERROR_SOUND_PATH, 0.3)
+      return
+    }
+    if (claimingInProgress || unstakingInProgress || isClaimingAll) return // Prevent overlapping actions
+
+    const eligibleNfts = stakedNfts.filter(nft => nft.currentReward && nft.currentReward > 0);
+    if (eligibleNfts.length === 0) {
+      toast({ title: "No rewards to claim", description: "None of your staked NFTs have accumulated rewards yet." })
+      return
+    }
+
+    setIsClaimingAll(true);
+    playSound(CLICK_SOUND_PATH, 0.3);
+    toast({ title: "Starting Claim All...", description: `Attempting to claim rewards for ${eligibleNfts.length} NFTs.` });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const nft of eligibleNfts) {
+      try {
+        // Set individual loading state for the card (optional but good UX)
+        setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
+        
+        console.log(`Claiming rewards for ${nft.mint}...`);
+        const transaction = await createClaimRewardsTransaction(
+          connection,
+          publicKey,
+          new PublicKey(nft.mint)
+        );
+        
+        const { signTransaction } = useWallet(); // Get signTransaction from the hook
+        if (!signTransaction) {
+          throw new Error('Wallet does not support signing transactions');
+        }
+        await sendTransaction(transaction, connection, { publicKey, signTransaction });
+        
+        console.log(`Successfully claimed rewards for ${nft.mint}`);
+        // Optional: Individual success toast (can be noisy)
+        // toast({ title: "Reward Claimed", description: `Claimed for ${nft.name}` });
+        successCount++;
+        
+      } catch (error: any) {
+        failCount++;
+        console.error(`Error claiming rewards for ${nft.mint}:`, error);
+        let errorMessage = error.message || "An unknown error occurred.";
+        // Optional: Individual error toast
+        // toast({ title: "Claim Error", description: `Failed for ${nft.name}: ${errorMessage}`, variant: "destructive" });
+      } finally {
+         // Reset individual loading state
+         setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
+      }
+      
+      // Small delay between transactions to avoid RPC rate limits
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+    }
+
+    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+    toast({ 
+      title: "Claim All Finished",
+      description: `Successfully claimed for ${successCount} NFTs. Failed for ${failCount} NFTs. Refreshing data...`,
+      variant: "default"
+    });
+
+    // Refresh data after all attempts
+    await fetchWalletData(); 
+    setIsClaimingAll(false);
+  }
+  
   // Format time display
   const formatTimeAgo = (timestamp?: number): string => {
     if (!timestamp) return "Unknown"
@@ -570,8 +647,8 @@ export default function OnChainNftStaking() {
       // Add the final fallback image
       urls.push(fallbackImagePath);
       
-      // Filter out duplicates and nulls
-      return [...new Set(urls.filter(Boolean))];
+      // Filter out duplicates and nulls, then explicitly convert Set to Array
+      return Array.from(new Set(urls.filter(Boolean)));
     }, [nft.image, nft.alternativeImageUrls]);
     
     // Function to handle image load errors with retry and URL cycling
@@ -790,6 +867,24 @@ export default function OnChainNftStaking() {
                 <p className="text-sm text-muted-foreground">Reward Rate</p>
                 <p className="text-2xl font-bold">250 / day</p>
               </div>
+            </div>
+            {/* Add Claim All Button Here */}
+            <div className="mt-4 flex justify-center"> 
+              <Button
+                onClick={handleClaimAllRewards}
+                disabled={!connected || isClaimingAll || stakingInProgress || unstakingInProgress || totalRewards <= 0}
+                size="lg"
+                variant="primary" // Assuming you have a primary variant, else use default
+              >
+                {isClaimingAll ? (
+                  <>
+                    <RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />
+                    Claiming...
+                  </>
+                ) : (
+                  `Claim All (${totalRewards.toFixed(2)} $POOKIE)`
+                )}
+              </Button>
             </div>
           </div>
         )}
