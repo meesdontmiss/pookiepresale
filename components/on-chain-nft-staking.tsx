@@ -82,6 +82,7 @@ export default function OnChainNftStaking() {
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
   const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({})
   const [isClaimingAll, setIsClaimingAll] = useState<boolean>(false); // Loading state for Claim All
+  const [isStakingAll, setIsStakingAll] = useState<boolean>(false); // Loading state for Stake All
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
@@ -598,6 +599,89 @@ export default function OnChainNftStaking() {
     setIsClaimingAll(false);
   }
   
+  // Handle staking ALL NFTs from the wallet tab
+  const handleStakeAll = async () => {
+    if (!connected || !publicKey) {
+      toast({ title: "Wallet not connected", variant: "destructive" })
+      return
+    }
+    if (!hasSufficientBalance) {
+      toast({ title: "Insufficient SOL", description: "Not enough SOL for transaction fees", variant: "destructive" })
+      playSound(ERROR_SOUND_PATH, 0.3)
+      return
+    }
+    // Prevent overlapping actions
+    if (claimingInProgress || unstakingInProgress || isClaimingAll || isStakingAll || stakingInProgress) return 
+
+    const eligibleNfts = walletNfts; // Stake all NFTs currently in the wallet tab
+    if (eligibleNfts.length === 0) {
+      toast({ title: "No NFTs to stake", description: "No Pookie NFTs found in your wallet." })
+      return
+    }
+
+    // Optional: Confirmation dialog (implement if needed)
+    // const confirmed = await showConfirmationDialog(`Stake all ${eligibleNfts.length} NFTs?`);
+    // if (!confirmed) return;
+
+    setIsStakingAll(true);
+    playSound(CLICK_SOUND_PATH, 0.3);
+    toast({ title: "Starting Stake All...", description: `Attempting to stake ${eligibleNfts.length} NFTs.` });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const nft of eligibleNfts) {
+      try {
+        // Set individual loading state for the card
+        setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
+        
+        console.log(`Staking ${nft.mint}...`);
+        const transaction = await createStakeNftTransaction(
+          connection,
+          publicKey,
+          new PublicKey(nft.mint)
+        );
+
+        const { signTransaction } = useWallet(); 
+        if (!signTransaction) {
+          throw new Error('Wallet does not support signing transactions');
+        }
+        await sendTransaction(transaction, connection, { publicKey, signTransaction });
+        
+        console.log(`Successfully staked ${nft.mint}`);
+        successCount++;
+        
+      } catch (error: any) {
+        failCount++;
+        console.error(`Error staking ${nft.mint}:`, error);
+        let errorMessage = error.message || "An unknown error occurred.";
+        // Optional: Individual error toast
+        // toast({ title: "Stake Error", description: `Failed for ${nft.name}: ${errorMessage}`, variant: "destructive" });
+      } finally {
+         // Reset individual loading state
+         setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
+      }
+      
+      // Small delay between transactions
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+    }
+
+    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+    toast({ 
+      title: "Stake All Finished", 
+      description: `Successfully staked ${successCount} NFTs. Failed for ${failCount} NFTs. Refreshing data...`,
+      variant: failCount > 0 ? "default" : "default"
+    });
+
+    // Refresh data after all attempts
+    await fetchWalletData(); 
+    setIsStakingAll(false);
+    // Switch to staked tab if any succeeded
+    if (successCount > 0) {
+      setActiveTab('staked');
+    }
+  }
+  
   // Format time display
   const formatTimeAgo = (timestamp?: number): string => {
     if (!timestamp) return "Unknown"
@@ -910,6 +994,26 @@ export default function OnChainNftStaking() {
               transition={{ duration: 0.2 }}
             >
               <TabsContent value="wallet" className="mt-0">
+                {/* Add Stake All Button Here */} 
+                {walletNfts.length > 0 && (
+                  <div className="mb-4 flex justify-center"> 
+                    <Button
+                      onClick={handleStakeAll}
+                      disabled={!connected || isStakingAll || stakingInProgress || walletNfts.length === 0}
+                      size="lg"
+                      variant="primary" // Use primary or default variant
+                    >
+                      {isStakingAll ? (
+                        <>
+                          <RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />
+                          Staking All...
+                        </>
+                      ) : (
+                        `Stake All (${walletNfts.length})`
+                      )}
+                    </Button>
+                  </div>
+                )}
                 {renderNftGrid(walletNfts, false)}
               </TabsContent>
               
