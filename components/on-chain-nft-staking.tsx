@@ -41,6 +41,7 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
 const SUCCESS_SOUND_PATH = '/sounds/success-sound.wav'
 const ERROR_SOUND_PATH = '/sounds/error-sound.wav'
+const KIDS_CHEER_SOUND_PATH = '/sounds/kidscheer.mp3' // Added new sound path
 
 // Extend BaseNFT to include full metadata fetched via proxy
 interface NFT extends BaseNFT {
@@ -71,6 +72,40 @@ const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error, resetError
     </button>
   </div>
 )
+
+// --- Add the audio playback function ---
+const playSuccessSound = async (volume = 0.3, duration = 3) => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const response = await fetch(KIDS_CHEER_SOUND_PATH);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+
+    const gainNode = audioContext.createGain();
+    gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    source.start(0);
+
+    // Schedule fade-out
+    const fadeStartTime = audioContext.currentTime + duration - 0.5; // Start fade 0.5s before end
+    const fadeEndTime = audioContext.currentTime + duration;
+    if (fadeStartTime > audioContext.currentTime) {
+       gainNode.gain.linearRampToValueAtTime(0, fadeEndTime);
+    }
+    
+    // Schedule stop
+    source.stop(fadeEndTime);
+
+  } catch (error) {
+    console.error("Error playing success sound:", error);
+  }
+};
 
 export default function OnChainNftStaking() {
   const { connection } = useConnection()
@@ -148,12 +183,12 @@ export default function OnChainNftStaking() {
       // Process NFTs using the batched staking info
       const nftsWithStakingStatus: StakedNFT[] = baseNfts.map(nft => {
         const stakingInfo = stakingInfoMap.get(nft.mint) || { isStaked: false, stakedAt: 0, daysStaked: 0, currentReward: 0 };
-        return {
-          ...nft,
-          isStaked: stakingInfo.isStaked,
-          stakedAt: stakingInfo.stakedAt,
-          daysStaked: stakingInfo.daysStaked,
-          currentReward: stakingInfo.currentReward,
+          return {
+            ...nft,
+            isStaked: stakingInfo.isStaked,
+            stakedAt: stakingInfo.stakedAt,
+            daysStaked: stakingInfo.daysStaked,
+            currentReward: stakingInfo.currentReward,
           metadataFetched: false, // Initialize metadata fetched status
         };
       });
@@ -233,14 +268,6 @@ export default function OnChainNftStaking() {
     }
   }
 
-  // Function to fetch full metadata via the backend proxy
-  // REMOVED: fetchMetadataViaProxy function is no longer needed.
-  /*
-  const fetchMetadataViaProxy = async (nft: StakedNFT): Promise<StakedNFT> => {
-    // ... entire function removed ...
-  };
-  */
-  
   // Manual Refresh Handler - Uses the memoized fetchWalletData
   const handleRefresh = useCallback(() => {
     if (!connected || !publicKey) {
@@ -257,239 +284,83 @@ export default function OnChainNftStaking() {
 
   // Handle NFT staking
   const handleStakeNft = async (nft: NFT) => {
-    if (stakingInProgress) return;
-    
+    if (!publicKey || !connection) {
+      toast({ title: "Wallet not connected", variant: "destructive" });
+      return;
+    }
+
+    if (stakingInProgress) {
+      toast({ title: "Staking already in progress...", variant: "default" });
+      return;
+    }
+
+    // Play click sound immediately
+    playSound(CLICK_SOUND_PATH, 0.5);
+
+    setStakingInProgress(true)
+    setLoadingStates(prev => ({ ...prev, [nft.mint]: true }))
+    setSelectedNftMint(nft.mint)
+    setError(null) // Clear previous errors
+
     try {
-      console.log(`Attempting to stake NFT: ${nft.name} (${nft.mint})`);
-      setError("");
-      setStakingInProgress(true);
-      
-      // Play sound
-      playSound(CLICK_SOUND_PATH, 0.3);
-      
-      // Get connection from the hook
-      if (!connection || !publicKey) {
-        throw new Error("Wallet not connected");
-      }
-      
-      // Create the staking transaction
+      // Create the stake transaction
       const transaction = await createStakeNftTransaction(
         connection,
         publicKey,
         new PublicKey(nft.mint)
       );
+
+      // Send the transaction
+      const signature = await sendTransaction(transaction, connection, {
+        publicKey,
+        signTransaction: (tx: Transaction) => (window as any).solana.signTransaction(tx),
+      });
       
-      // Log transaction for debugging
-      console.log("Constructed Stake Transaction:", transaction);
-      
-      // Log each instruction and its accounts for debugging
-      transaction.instructions.forEach((instruction, index) => {
-        console.log(` Instruction ${index}: Program = ${instruction.programId.toString()}`);
-        instruction.keys.forEach((key, keyIndex) => {
-          console.log(`  Key ${keyIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
-        });
+      // --- Play success sound on confirmation --- 
+      await playSuccessSound(); // Call the new function
+
+      toast({
+        title: "NFT Staked Successfully!",
+        description: `Transaction: ${signature.substring(0, 10)}...`,
+        variant: "success",
       });
 
-      // Verify all accounts before simulation
-      try {
-        console.log("Verifying accounts exist before simulation...");
-        const accountsToVerify = new Set<string>();
-        
-        // Collect all unique accounts from instructions
-        transaction.instructions.forEach(instruction => {
-          instruction.keys.forEach(keyObj => {
-            // Skip system program and well-known addresses
-            const key = keyObj.pubkey.toString();
-            if (
-              key !== SystemProgram.programId.toString() && 
-              key !== TOKEN_PROGRAM_ID.toString() && 
-              key !== SYSVAR_RENT_PUBKEY.toString() &&
-              key !== SYSVAR_CLOCK_PUBKEY.toString() &&
-              !key.includes("11111111111111111111111")  // Skip well-known system addresses
-            ) {
-              accountsToVerify.add(key);
-            }
-          });
-          
-          // Also check the program ID itself
-          accountsToVerify.add(instruction.programId.toString());
-        });
-        
-        // Check all accounts in parallel
-        const verificationPromises = Array.from(accountsToVerify).map(async (accountKey) => {
-          const pubkey = new PublicKey(accountKey);
-          const accountInfo = await connection.getAccountInfo(pubkey);
-          return { accountKey, exists: !!accountInfo, owner: accountInfo?.owner.toString() || 'N/A' };
-        });
-        
-        const verificationResults = await Promise.all(verificationPromises);
-        
-        // Print verification results
-        console.log("Account verification results:");
-        verificationResults.forEach(result => {
-          console.log(`- ${result.accountKey}: ${result.exists ? `EXISTS (owner: ${result.owner})` : 'DOES NOT EXIST'}`);
-        });
-        
-        // Check if staking program exists
-        const programExists = verificationResults.find(r => 
-          r.accountKey === STAKING_PROGRAM_ID.toString())?.exists;
-          
-        if (!programExists) {
-          throw new Error(`Staking program ${STAKING_PROGRAM_ID.toString()} does not exist on this network!`);
-        }
-        
-        // Check for any missing accounts
-        const missingAccounts = verificationResults.filter(r => !r.exists);
-        if (missingAccounts.length > 0) {
-          console.warn(`Warning: Some accounts do not exist: ${missingAccounts.map(a => a.accountKey).join(', ')}`);
-          // We don't throw here because some accounts might be created during the transaction
-        }
+      // Refresh data after successful stake
+      setRefreshTrigger(prev => prev + 1); 
 
-        // If verification passes and the staking program exists, 
-        // we have the option to bypass simulation which could be overly restrictive
-        const bypassSimulation = true; // Set this to true to bypass simulation
-        if (bypassSimulation && programExists) {
-          console.log("BYPASSING SIMULATION - verification passed and program exists");
-          console.log("Sending transaction directly...");
-          
-          // Send the transaction
-          const signature = await sendTransaction(
-            transaction,
-            connection,
-            {
-              publicKey,
-              signTransaction: async (tx) => {
-                if (window.solana && window.solana.signTransaction) {
-                  return window.solana.signTransaction(tx)
-                }
-                throw new Error('Wallet adapter does not support signTransaction')
-              }
-            }
-          );
-          
-          console.log("Transaction sent successfully:", signature);
-          
-          toast({
-            title: "NFT Staked",
-            description: "Your NFT has been staked successfully!",
-            variant: "default"
-          });
-          
-          // Update state
-          setStakingInProgress(false);
-          setSelectedNftMint("");
-          
-          // Play success sound
-          playSound(SUCCESS_SOUND_PATH, 0.3);
-          
-          setTimeout(() => {
-            fetchWalletData(); // Refresh wallet data after staking
-          }, 3000);
-          
-          return; // Exit early - we're done
-        }
-      } catch (verifyError) {
-        console.error("Error verifying accounts:", verifyError);
-        // Continue anyway, the simulation will catch any issues
-      }
-      
-      // Assign fee payer and recent blockhash BEFORE simulation
-      try {
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        transaction.recentBlockhash = blockhash;
-        transaction.lastValidBlockHeight = lastValidBlockHeight;
-        transaction.feePayer = publicKey; // Assign fee payer
-      } catch (blockhashError) {
-        console.error("Failed to get latest blockhash:", blockhashError);
-        throw new Error("Could not fetch latest blockhash for simulation.");
-      }
-
-      // === Add Explicit Simulation ===
-      try {
-        console.log("Simulating stake transaction...");
-        const { value: simulationResult, context } = await connection.simulateTransaction(transaction); // Commitment defaults, or can be added as third arg if needed
-        
-        if (simulationResult.err) {
-          console.error("Transaction simulation failed:", simulationResult.err);
-          console.error("Simulation Logs:", simulationResult.logs);
-          // Try to provide a more specific error if possible
-          let simErrorMsg = `Transaction simulation failed: ${JSON.stringify(simulationResult.err)}`;
-          if (simulationResult.logs) {
-            simErrorMsg += `\nLogs: ${simulationResult.logs.join('\n')}`;
-          }
-          throw new Error(simErrorMsg);
-        } else {
-          console.log("Transaction simulation successful. Logs:", simulationResult.logs);
-        }
-      } catch (simError) {
-        console.error("Error during explicit simulation:", simError);
-        // Rethrow or handle as appropriate, maybe display specific simulation error to user
-        // Add check to prevent throwing the generic 'Invalid arguments' if caught here
-        if (simError instanceof Error && simError.message.includes('Invalid arguments')) {
-          throw new Error('Simulation failed due to invalid transaction structure (pre-flight).');
-        } else {
-          throw simError;
-        }
-      }
-      // === End Explicit Simulation ===
-
-      // Send transaction
-      await sendTransaction(
-        transaction, 
-        connection, 
-        {
-          publicKey, 
-          signTransaction: async (tx) => {
-            if (window.solana && window.solana.signTransaction) {
-              return window.solana.signTransaction(tx)
-            }
-            throw new Error('Wallet adapter does not support signTransaction')
-          }
-        }
-      )
-      
-      playSound(SUCCESS_SOUND_PATH, 0.3)
-      toast({
-        title: "NFT Staked!",
-        description: "Your NFT has been staked successfully.",
-      })
-      
-      // Refresh data
-      await fetchWalletData()
-      
-      // Switch to staked tab
-      setActiveTab('staked')
     } catch (error) {
-      console.error('Error staking NFT:', error)
-      playSound(ERROR_SOUND_PATH, 0.3)
-      
-      let errorMessage = "An error occurred while staking your NFT.";
-      // Attempt to get more specific error details
+      playSound(ERROR_SOUND_PATH, 0.5);
+      console.error('Staking failed:', error);
+      let errorMessage = 'Staking failed. Please try again.';
       if (error instanceof Error) {
-        errorMessage = error.message;
-        // Check if logs are available (specific error types might have them)
-        if ('getLogs' in error && typeof error.getLogs === 'function') {
-          try {
-            const logs = await error.getLogs();
-            console.error("Transaction Logs:", logs);
-            // You could potentially parse logs here for specific program errors
-            errorMessage += ` (Logs: ${logs.slice(0, 5).join(', ')}...)`; // Show first few logs
-          } catch (logError) {
-            console.error("Failed to get transaction logs:", logError);
+        if (error.message === StakingError.InsufficientFunds) {
+          errorMessage = 'Insufficient SOL balance for transaction fees.';
+        } else if (error.message.includes('already staked')) {
+          errorMessage = 'This NFT is already staked.';
+        } else if (error.message.includes('Network request failed') || (error as any).code === 429) {
+          errorMessage = 'Network error or rate limit exceeded. Please try again shortly.'
+        } else {
+          // Try to extract a more specific simulation error if available
+          const simulationErrorMatch = error.message.match(/custom program error: 0x([0-9a-fA-F]+)/);
+          if (simulationErrorMatch && simulationErrorMatch[1]) {
+            errorMessage = `Staking failed: Program error 0x${simulationErrorMatch[1]}. Check program logs.`;
+          } else if (error.message.length < 100) { // Keep concise errors
+            errorMessage = `Staking failed: ${error.message}`;
           }
         }
       }
-      
       toast({
-        title: "Staking error",
+        title: "Staking Error",
         description: errorMessage,
-        variant: "destructive"
-      })
+        variant: "destructive",
+      });
+      setError(errorMessage);
     } finally {
       setStakingInProgress(false)
+      setLoadingStates(prev => ({ ...prev, [nft.mint]: false }))
       setSelectedNftMint("")
     }
-  }
+  };
   
   // Handle NFT unstaking
   const handleUnstakeNft = async (nftMint: string) => {
@@ -908,22 +779,22 @@ export default function OnChainNftStaking() {
     const handleImageError = () => {
       // Add a small delay before trying the next URL or retry
       setTimeout(() => {
-        // Try the next URL in our list
-        if (currentImageIndex < possibleImageUrls.length - 1) {
-          setCurrentImageIndex(prev => prev + 1);
-          console.log(`Trying alternative URL for ${nft.name}: ${possibleImageUrls[currentImageIndex + 1]}`);
-        } 
-        // Or retry with the same URL if we haven't exceeded retries
-        else if (retryCount < maxRetries) {
-          setRetryCount(prev => prev + 1);
-          console.log(`Retrying image load for ${nft.name}, attempt ${retryCount + 1}/${maxRetries}`);
-        } 
-        // Use fallback after exhausting all options
-        else {
-          setImageError(true);
-          setImageLoaded(true);
-          console.log(`Using fallback image for ${nft.name} after all attempts failed`);
-        }
+      // Try the next URL in our list
+      if (currentImageIndex < possibleImageUrls.length - 1) {
+        setCurrentImageIndex(prev => prev + 1);
+        console.log(`Trying alternative URL for ${nft.name}: ${possibleImageUrls[currentImageIndex + 1]}`);
+      } 
+      // Or retry with the same URL if we haven't exceeded retries
+      else if (retryCount < maxRetries) {
+        setRetryCount(prev => prev + 1);
+        console.log(`Retrying image load for ${nft.name}, attempt ${retryCount + 1}/${maxRetries}`);
+      } 
+      // Use fallback after exhausting all options
+      else {
+        setImageError(true);
+        setImageLoaded(true);
+        console.log(`Using fallback image for ${nft.name} after all attempts failed`);
+      }
       }, 300); // Increased delay slightly (300ms)
     };
 
@@ -1244,14 +1115,14 @@ export default function OnChainNftStaking() {
                 )}
                 {/* Add scroll container */}
                 <div className="max-h-[60vh] overflow-y-auto pr-2"> 
-                  {renderNftGrid(walletNfts, false)}
+                {renderNftGrid(walletNfts, false)}
                 </div>
               </TabsContent>
               
               <TabsContent value="staked" className="mt-0">
                 {/* Add scroll container */}
                 <div className="max-h-[60vh] overflow-y-auto pr-2">
-                  {renderNftGrid(stakedNfts, true)}
+                {renderNftGrid(stakedNfts, true)}
                 </div>
               </TabsContent>
             </motion.div>
