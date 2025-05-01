@@ -322,7 +322,7 @@ export default function OnChainNftStaking() {
       toast({
         title: "NFT Staked Successfully!",
         description: `Transaction: ${signature.substring(0, 10)}...`,
-        variant: "success",
+        variant: "default",
       });
 
       // Refresh data after successful stake
@@ -645,47 +645,45 @@ export default function OnChainNftStaking() {
         // Set individual loading state for the card
         setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
         
-        console.log(`Staking ${nft.mint}...`);
+        console.log(`[handleStakeAll] Processing NFT: ${nft.mint}`); // Log Start
+        
         const transaction = await createStakeNftTransaction(
           connection,
           publicKey,
           new PublicKey(nft.mint)
         );
-
-        console.log(`Constructed Stake Transaction for ${nft.mint}:`, transaction);
-        // Log instructions and keys for debugging
-        transaction.instructions.forEach((ix, index) => {
-          console.log(` ${nft.mint} - Instruction ${index}: Program = ${ix.programId.toString()}`);
-          ix.keys.forEach((key, kIndex) => {
-            console.log(`  ${nft.mint} - Key ${kIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
-          });
-        });
+        
+        console.log(`[handleStakeAll] Created transaction for ${nft.mint}:`, transaction); // Log Tx Creation
 
         const { signTransaction } = useWallet(); 
         if (!signTransaction) {
+          console.error("[handleStakeAll] signTransaction function not available from wallet.");
           throw new Error('Wallet does not support signing transactions');
         }
+        
+        console.log(`[handleStakeAll] Attempting to send transaction for ${nft.mint}...`); // Log Before Send
+        
         await sendTransaction(transaction, connection, { publicKey, signTransaction });
         
-        console.log(`Successfully staked ${nft.mint}`);
+        console.log(`[handleStakeAll] Successfully staked ${nft.mint}`); // Log Success
         successCount++;
+        await playSuccessSound(); // Play sound on individual success
         
       } catch (error: any) {
         failCount++;
-        console.error(`Error staking ${nft.mint}:`, error);
+        console.error(`[handleStakeAll] Error staking ${nft.mint}:`, error); // Log Error
         let errorMessage = error.message || "An unknown error occurred.";
         // Check if logs are available
         if ('getLogs' in error && typeof error.getLogs === 'function') {
           try {
             const logs = await error.getLogs();
-            console.error(`Logs for failed stake of ${nft.mint}:`, logs);
+            console.error(`[handleStakeAll] Logs for failed stake of ${nft.mint}:`, logs);
             errorMessage += ` (Logs: ${logs.slice(0, 5).join(', ')}...)`;
           } catch (logError) {
-            console.error("Failed to get transaction logs:", logError);
+            console.error("[handleStakeAll] Failed to get transaction logs:", logError);
           }
         }
-        // Optional: Individual error toast
-        // toast({ title: "Stake Error", description: `Failed for ${nft.name}: ${errorMessage}`, variant: "destructive" });
+        // Display a general error for the batch, individual errors logged to console
       } finally {
          // Reset individual loading state
          setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
@@ -695,11 +693,11 @@ export default function OnChainNftStaking() {
       await new Promise(resolve => setTimeout(resolve, 500)); 
     }
 
-    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3); // Keep general sound
     toast({ 
-      title: "Stake All Finished", 
+      title: "Stake Selected Finished", 
       description: `Successfully staked ${successCount} NFTs. Failed for ${failCount} NFTs. Refreshing data...`,
-      variant: failCount > 0 ? "default" : "default"
+      variant: failCount > 0 ? "destructive" : "default" // Use destructive variant if any fail
     });
 
     // Refresh data after all attempts
@@ -1081,7 +1079,7 @@ export default function OnChainNftStaking() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              <TabsContent value="wallet" className="mt-0">
+              <TabsContent value="wallet" className="mt-0 pb-6">
                 {/* Add Stake All Button Here */} 
                 {walletNfts.length > 0 && (
                   <div className="mb-4 flex justify-center gap-4"> 
@@ -1119,7 +1117,7 @@ export default function OnChainNftStaking() {
                 </div>
               </TabsContent>
               
-              <TabsContent value="staked" className="mt-0">
+              <TabsContent value="staked" className="mt-0 pb-6">
                 {/* Add scroll container */}
                 <div className="max-h-[60vh] overflow-y-auto pr-2">
                 {renderNftGrid(stakedNfts, true)}

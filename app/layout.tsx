@@ -61,7 +61,7 @@ export default function RootLayout({
 
   return (
     // Restore original class
-    <html lang="en" className="cursor-middle-finger"> 
+    <html lang="en" className="cursor-middle-finger">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
