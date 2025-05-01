@@ -208,17 +208,15 @@ export async function createStakeNftTransaction(
     transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600000 }));
     
     // Check if program's NFT token account exists, if not add instruction to create it
-    const programTokenAccountInfo = await connection.getAccountInfo(programNftTokenAccount);
-    if (!programTokenAccountInfo) {
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-          wallet,
-          programNftTokenAccount,
-          programAuthority,
-          nftMint
-        )
-      );
-    }
+    // Always add the instruction to create the program's ATA (idempotent)
+    transaction.add(
+      createAssociatedTokenAccountInstruction(
+        wallet, // Payer
+        programNftTokenAccount, // ATA address
+        programAuthority, // Owner of the ATA
+        nftMint // Mint
+      )
+    );
 
     // Instruction data
     const instructionData = Buffer.from([StakingInstruction.StakeNft]);
