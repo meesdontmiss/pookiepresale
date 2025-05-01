@@ -1,12 +1,13 @@
-"use client" // Make layout a client component to use hooks
+// "use client" // REMOVE: Cannot be client component if exporting metadata
 
 import type { Metadata } from "next"
-import { usePathname } from 'next/navigation' // Import usePathname
+// import { usePathname } from 'next/navigation' // REMOVE: Cannot use hooks here
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
+import { BodyClassManager } from "@/components/layout/body-class-manager"
 // import "@/lib/rpc-patch"
 import "./globals.css"
-import { cn } from "@/lib/utils"; // Import cn for conditional classes
+// import { cn } from "@/lib/utils"; // REMOVE: Not needed here anymore
 
 export const metadata: Metadata = {
   title: "$POOKIE",
@@ -54,11 +55,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const pathname = usePathname(); // Get current path
-  const isStakingPage = pathname === '/staking'; // Check if it's the staking page
+  // REMOVE hook logic
+  // const pathname = usePathname(); 
+  // const isStakingPage = pathname === '/staking';
 
   return (
-    <html lang="en" className={cn(!isStakingPage && "cursor-middle-finger")}> {/* Conditionally apply class */}
+    // Restore original class
+    <html lang="en" className="cursor-middle-finger"> 
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -80,13 +83,10 @@ export default function RootLayout({
         <meta name="twitter:site" content="@Pookiethepeng" />
         <meta name="twitter:image:alt" content="Pookie Memecoin" />
       </head>
-      <body 
-        className={cn(
-          "min-h-screen bg-background antialiased",
-          !isStakingPage && "cursor-middle-finger" // Conditionally apply class
-        )}
-      >
+      {/* Restore original class */}
+      <body className="min-h-screen bg-background antialiased cursor-middle-finger">
         <WalletProvider>
+          <BodyClassManager />
           <GlobalSoundProvider />
           {children}
         </WalletProvider>
