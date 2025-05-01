@@ -28,8 +28,8 @@ import BN from 'bn.js';
 import { Buffer } from 'buffer';
 
 // Constants
-// Use the devnet ID until the program is deployed to mainnet
-const PROGRAM_ID = process.env.NEXT_PUBLIC_STAKING_PROGRAM_ID || 'Eog9gh4hpvZ9GDYjP5x1u2SJthpJKRCVZCx8Jn31DQX3';
+// This is the correct program ID for mainnet deployment
+const PROGRAM_ID = process.env.NEXT_PUBLIC_STAKING_PROGRAM_ID || 'FWcUFBDFW6Y677jcSb6cgjpYQ9dYpnNCfBWkDChHEGuq';
 const COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || '11111111111111111111111111111111';
 const POOKIE_TOKEN_MINT = process.env.NEXT_PUBLIC_POOKIE_TOKEN_MINT || '11111111111111111111111111111111';
 const TREASURY_ADDRESS = process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '11111111111111111111111111111111';
@@ -206,12 +206,12 @@ export async function createStakeNftTransaction(
     
     // Add compute budget instructions first
     transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
-    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600000 }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }));
     
     // Check if program's NFT token account exists, if not add instruction to create it
     // Always add the instruction to create the program's ATA (idempotent)
-    transaction.add(
-      createAssociatedTokenAccountInstruction(
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
         wallet, // Payer
         programNftTokenAccount, // ATA address
         programAuthority, // Owner of the ATA
