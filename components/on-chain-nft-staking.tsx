@@ -22,7 +22,12 @@ import {
   sendTransaction,
   getTokenBalance,
   hasEnoughSol,
-  StakingError
+  StakingError,
+  STAKING_PROGRAM_ID,
+  SystemProgram,
+  TOKEN_PROGRAM_ID,
+  SYSVAR_RENT_PUBKEY,
+  SYSVAR_CLOCK_PUBKEY,
 } from '@/utils/solana-staking-client'
 import { ErrorBoundary } from 'react-error-boundary'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
@@ -248,49 +253,100 @@ export default function OnChainNftStaking() {
   }, [connected, publicKey, fetchWalletData]); // Add fetchWalletData dependency
 
   // Handle NFT staking
-  const handleStakeNft = async (nftMint: string) => {
-    if (!connected || !publicKey) {
-      toast({
-        title: "Wallet not connected",
-        description: "Please connect your wallet to stake NFTs",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (!hasSufficientBalance) {
-      toast({
-        title: "Insufficient SOL",
-        description: "Your wallet has insufficient SOL for transaction fees",
-        variant: "destructive"
-      })
-      playSound(ERROR_SOUND_PATH, 0.3)
-      return
-    }
-    
-    if (stakingInProgress) return
+  const handleStakeNft = async (nft: NFT) => {
+    if (isStaking) return;
     
     try {
-      setStakingInProgress(true)
-      setSelectedNftMint(nftMint)
-      playSound(CLICK_SOUND_PATH, 0.3)
+      console.log(`Attempting to stake NFT: ${nft.name} (${nft.mint})`);
+      setError("");
+      setIsStaking(true);
       
-      // Create stake transaction
+      // Play sound
+      clickSounds.current[Math.floor(Math.random() * clickSounds.current.length)]?.play();
+      
+      // Get connection from the hook
+      const connection = conn?.connection;
+      if (!connection || !publicKey) {
+        throw new Error("Wallet not connected");
+      }
+      
+      // Create the staking transaction
       const transaction = await createStakeNftTransaction(
         connection,
         publicKey,
-        new PublicKey(nftMint)
-      )
+        new PublicKey(nft.mint)
+      );
       
+      // Log transaction for debugging
       console.log("Constructed Stake Transaction:", transaction);
-      // Log instructions and keys for debugging
-      transaction.instructions.forEach((ix, index) => {
-        console.log(` Instruction ${index}: Program = ${ix.programId.toString()}`);
-        ix.keys.forEach((key, kIndex) => {
-          console.log(`  Key ${kIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+      
+      // Log each instruction and its accounts for debugging
+      transaction.instructions.forEach((instruction, index) => {
+        console.log(` Instruction ${index}: Program = ${instruction.programId.toString()}`);
+        instruction.keys.forEach((key, keyIndex) => {
+          console.log(`  Key ${keyIndex}: ${key.pubkey.toString()}, Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
         });
       });
 
+      // Verify all accounts before simulation
+      try {
+        console.log("Verifying accounts exist before simulation...");
+        const accountsToVerify = new Set<string>();
+        
+        // Collect all unique accounts from instructions
+        transaction.instructions.forEach(instruction => {
+          instruction.keys.forEach(keyObj => {
+            // Skip system program and well-known addresses
+            const key = keyObj.pubkey.toString();
+            if (
+              key !== SystemProgram.programId.toString() && 
+              key !== TOKEN_PROGRAM_ID.toString() && 
+              key !== SYSVAR_RENT_PUBKEY.toString() &&
+              key !== SYSVAR_CLOCK_PUBKEY.toString() &&
+              !key.includes("11111111111111111111111")  // Skip well-known system addresses
+            ) {
+              accountsToVerify.add(key);
+            }
+          });
+          
+          // Also check the program ID itself
+          accountsToVerify.add(instruction.programId.toString());
+        });
+        
+        // Check all accounts in parallel
+        const verificationPromises = Array.from(accountsToVerify).map(async (accountKey) => {
+          const pubkey = new PublicKey(accountKey);
+          const accountInfo = await connection.getAccountInfo(pubkey);
+          return { accountKey, exists: !!accountInfo, owner: accountInfo?.owner.toString() || 'N/A' };
+        });
+        
+        const verificationResults = await Promise.all(verificationPromises);
+        
+        // Print verification results
+        console.log("Account verification results:");
+        verificationResults.forEach(result => {
+          console.log(`- ${result.accountKey}: ${result.exists ? `EXISTS (owner: ${result.owner})` : 'DOES NOT EXIST'}`);
+        });
+        
+        // Check if staking program exists
+        const programExists = verificationResults.find(r => 
+          r.accountKey === STAKING_PROGRAM_ID.toString())?.exists;
+          
+        if (!programExists) {
+          throw new Error(`Staking program ${STAKING_PROGRAM_ID.toString()} does not exist on this network!`);
+        }
+        
+        // Check for any missing accounts
+        const missingAccounts = verificationResults.filter(r => !r.exists);
+        if (missingAccounts.length > 0) {
+          console.warn(`Warning: Some accounts do not exist: ${missingAccounts.map(a => a.accountKey).join(', ')}`);
+          // We don't throw here because some accounts might be created during the transaction
+        }
+      } catch (verifyError) {
+        console.error("Error verifying accounts:", verifyError);
+        // Continue anyway, the simulation will catch any issues
+      }
+      
       // Assign fee payer and recent blockhash BEFORE simulation
       try {
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
@@ -906,7 +962,7 @@ export default function OnChainNftStaking() {
               size="sm"
               className="w-full"
               disabled={isLoading || stakingInProgress}
-              onClick={() => handleStakeNft(nft.mint)}
+              onClick={() => handleStakeNft(nft)}
             >
               {isLoading ? 'Staking...' : 'Stake NFT'}
             </Button>
