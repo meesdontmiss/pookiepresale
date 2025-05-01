@@ -30,12 +30,12 @@ import {
   hasEnoughSol,
   StakingError,
   STAKING_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
 } from '@/utils/solana-staking-client'
 import { ErrorBoundary } from 'react-error-boundary'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import axios from 'axios'
 import { cn } from '@/lib/utils'
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 
 // Sound paths
 const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
@@ -257,18 +257,17 @@ export default function OnChainNftStaking() {
 
   // Handle NFT staking
   const handleStakeNft = async (nft: NFT) => {
-    if (isStaking) return;
+    if (stakingInProgress) return;
     
     try {
       console.log(`Attempting to stake NFT: ${nft.name} (${nft.mint})`);
       setError("");
-      setIsStaking(true);
+      setStakingInProgress(true);
       
       // Play sound
-      clickSounds.current[Math.floor(Math.random() * clickSounds.current.length)]?.play();
+      playSound(CLICK_SOUND_PATH, 0.3);
       
       // Get connection from the hook
-      const connection = conn?.connection;
       if (!connection || !publicKey) {
         throw new Error("Wallet not connected");
       }
@@ -359,7 +358,12 @@ export default function OnChainNftStaking() {
             connection,
             {
               publicKey,
-              signTransaction: wallet.signTransaction
+              signTransaction: async (tx) => {
+                if (window.solana && window.solana.signTransaction) {
+                  return window.solana.signTransaction(tx)
+                }
+                throw new Error('Wallet adapter does not support signTransaction')
+              }
             }
           );
           
@@ -368,7 +372,7 @@ export default function OnChainNftStaking() {
           toast({
             title: "NFT Staked",
             description: "Your NFT has been staked successfully!",
-            variant: "success"
+            variant: "default"
           });
           
           // Update state
