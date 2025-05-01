@@ -128,6 +128,7 @@ export default function OnChainNftStaking() {
   const [isClaimingAll, setIsClaimingAll] = useState<boolean>(false); // Loading state for Claim All
   const [isStakingAll, setIsStakingAll] = useState<boolean>(false); // Loading state for Stake All
   const [selectedWalletNfts, setSelectedWalletNfts] = useState<Set<string>>(new Set()); // For multi-select stake
+  const [stakedSuccessMint, setStakedSuccessMint] = useState<string | null>(null); // <-- Add state for visual success
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
@@ -316,16 +317,18 @@ export default function OnChainNftStaking() {
         signTransaction: (tx: Transaction) => (window as any).solana.signTransaction(tx),
       });
       
-      // --- Play success sound on confirmation --- 
-      await playSuccessSound(); // Call the new function
+      // --- Play success sound & Show Visual Confirmation --- 
+      await playSuccessSound(); 
+      setStakedSuccessMint(nft.mint); // <-- Set success state
+      setTimeout(() => setStakedSuccessMint(null), 2500); // <-- Clear after 2.5 seconds
 
       toast({
         title: "NFT Staked Successfully!",
         description: `Transaction: ${signature.substring(0, 10)}...`,
-        variant: "default",
+        variant: "default", 
       });
 
-      // Refresh data after successful stake
+      // Refresh data after successful stake (might run before timeout clears visual)
       setRefreshTrigger(prev => prev + 1); 
 
     } catch (error) {
@@ -724,17 +727,22 @@ export default function OnChainNftStaking() {
   }
   
   // Update the NFT card component - Wrap with React.memo
-  const NftCard = React.memo(({ 
-    nft, 
-    isStaked = false, 
-    isSelected = false, // New prop for selection state
-    onSelect // New prop for handling selection click
-  }: { 
+  // Explicitly define the props type first
+  type NftCardProps = {
     nft: StakedNFT;
     isStaked?: boolean;
     isSelected?: boolean;
     onSelect?: (mint: string) => void;
-  }) => {
+    stakedSuccessMint: string | null;
+  };
+
+  const NftCard = React.memo(({
+    nft, 
+    isStaked = false, 
+    isSelected = false, 
+    onSelect,
+    stakedSuccessMint
+  }: NftCardProps) => { // Use the defined type here
     const isLoading = loadingStates[nft.mint] || false;
     const [imageError, setImageError] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
@@ -808,6 +816,8 @@ export default function OnChainNftStaking() {
       }
     };
 
+    const showSuccessOverlay = nft.mint === stakedSuccessMint;
+
     return (
       <Card 
         className={cn(
@@ -848,6 +858,22 @@ export default function OnChainNftStaking() {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
             )}
+            
+            {/* Success Overlay - Added */}
+            <AnimatePresence>
+              {showSuccessOverlay && (
+                <motion.div 
+                  initial={{ opacity: 0 }} 
+                  animate={{ opacity: 1 }} 
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0 bg-green-500/80 flex flex-col items-center justify-center text-white font-bold text-center p-2"
+                >
+                  <p className="text-lg">Staked! ✅</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
           </div>
         </CardContent>
         <CardFooter className="p-4 flex flex-col gap-2">
@@ -886,7 +912,7 @@ export default function OnChainNftStaking() {
       </Card>
     );
   });
-  NftCard.displayName = 'NftCard'; // Good practice for debugging memoized components
+  NftCard.displayName = 'NftCard';
   
   // Update the grid rendering component
   const renderNftGrid = (nfts: StakedNFT[], isStaked = false) => {
@@ -944,8 +970,9 @@ export default function OnChainNftStaking() {
             key={nft.mint} 
             nft={nft} 
             isStaked={isStaked} 
-            isSelected={!isStaked && selectedWalletNfts.has(nft.mint)} // Pass selection state only for wallet NFTs
-            onSelect={handleSelectNft} // Pass selection handler
+            isSelected={!isStaked && selectedWalletNfts.has(nft.mint)} 
+            onSelect={handleSelectNft} 
+            stakedSuccessMint={stakedSuccessMint}
           />
         ))}
       </div>
