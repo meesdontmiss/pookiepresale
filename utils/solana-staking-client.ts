@@ -205,7 +205,7 @@ export async function createStakeNftTransaction(
     
     // Add compute budget instructions first
     transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
-    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 }));
     
     // Check if program's NFT token account exists, if not add instruction to create it
     const programTokenAccountInfo = await connection.getAccountInfo(programNftTokenAccount);
@@ -235,6 +235,7 @@ export async function createStakeNftTransaction(
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: programAuthority, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
       data: instructionData,
