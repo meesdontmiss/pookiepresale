@@ -27,6 +27,7 @@ import {
 import { ErrorBoundary } from 'react-error-boundary'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import axios from 'axios'
+import { cn } from '@/lib/utils'
 
 // Sound paths
 const CLICK_SOUND_PATH = '/sounds/click-sound.wav'
@@ -83,6 +84,7 @@ export default function OnChainNftStaking() {
   const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({})
   const [isClaimingAll, setIsClaimingAll] = useState<boolean>(false); // Loading state for Claim All
   const [isStakingAll, setIsStakingAll] = useState<boolean>(false); // Loading state for Stake All
+  const [selectedWalletNfts, setSelectedWalletNfts] = useState<Set<string>>(new Set()); // For multi-select stake
   
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
@@ -610,27 +612,29 @@ export default function OnChainNftStaking() {
       playSound(ERROR_SOUND_PATH, 0.3)
       return
     }
-    // Prevent overlapping actions
     if (claimingInProgress || unstakingInProgress || isClaimingAll || isStakingAll || stakingInProgress) return 
 
-    const eligibleNfts = walletNfts; // Stake all NFTs currently in the wallet tab
-    if (eligibleNfts.length === 0) {
-      toast({ title: "No NFTs to stake", description: "No Pookie NFTs found in your wallet." })
+    // Stake only the selected NFTs
+    const nftsToStake = walletNfts.filter(nft => selectedWalletNfts.has(nft.mint));
+    
+    if (nftsToStake.length === 0) {
+      toast({ title: "No NFTs selected", description: "Please select the NFTs you wish to stake." })
       return
     }
 
     // Optional: Confirmation dialog (implement if needed)
-    // const confirmed = await showConfirmationDialog(`Stake all ${eligibleNfts.length} NFTs?`);
+    // const confirmed = await showConfirmationDialog(`Stake ${nftsToStake.length} selected NFTs?`);
     // if (!confirmed) return;
 
     setIsStakingAll(true);
     playSound(CLICK_SOUND_PATH, 0.3);
-    toast({ title: "Starting Stake All...", description: `Attempting to stake ${eligibleNfts.length} NFTs.` });
+    toast({ title: "Starting Stake Selected...", description: `Attempting to stake ${nftsToStake.length} selected NFTs.` });
 
     let successCount = 0;
     let failCount = 0;
 
-    for (const nft of eligibleNfts) {
+    // Iterate over selected NFTs
+    for (const nft of nftsToStake) {
       try {
         // Set individual loading state for the card
         setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
@@ -676,6 +680,7 @@ export default function OnChainNftStaking() {
     // Refresh data after all attempts
     await fetchWalletData(); 
     setIsStakingAll(false);
+    setSelectedWalletNfts(new Set()); // Clear selection after staking
     // Switch to staked tab if any succeeded
     if (successCount > 0) {
       setActiveTab('staked');
@@ -696,7 +701,17 @@ export default function OnChainNftStaking() {
   }
   
   // Update the NFT card component
-  const NftCard = ({ nft, isStaked = false }: { nft: StakedNFT, isStaked?: boolean }) => {
+  const NftCard = ({ 
+    nft, 
+    isStaked = false, 
+    isSelected = false, // New prop for selection state
+    onSelect // New prop for handling selection click
+  }: { 
+    nft: StakedNFT;
+    isStaked?: boolean;
+    isSelected?: boolean;
+    onSelect?: (mint: string) => void;
+  }) => {
     const isLoading = loadingStates[nft.mint] || false;
     const [imageError, setImageError] = useState(false);
     const [imageLoaded, setImageLoaded] = useState(false);
@@ -760,8 +775,22 @@ export default function OnChainNftStaking() {
       ? fallbackImagePath 
       : possibleImageUrls[currentImageIndex] || fallbackImagePath;
 
+    // Handler for clicking the card itself (for selection)
+    const handleCardClick = () => {
+      if (!isStaked && onSelect) { // Only allow selection on wallet NFTs
+        onSelect(nft.mint);
+      }
+    };
+
     return (
-      <Card className="relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200">
+      <Card 
+        className={cn(
+          "relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200 cursor-pointer",
+          isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background", // Style for selected card
+          isStaked && "cursor-default" // Don't show pointer cursor for staked cards
+        )}
+        onClick={handleCardClick} // Click handler for selection
+      >
         <CardHeader className="p-4">
           <CardTitle className="text-sm font-medium truncate">{nft.name}</CardTitle>
         </CardHeader>
@@ -884,10 +913,40 @@ export default function OnChainNftStaking() {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {nfts.map((nft) => (
-          <NftCard key={nft.mint} nft={nft} isStaked={isStaked} />
+          <NftCard 
+            key={nft.mint} 
+            nft={nft} 
+            isStaked={isStaked} 
+            isSelected={!isStaked && selectedWalletNfts.has(nft.mint)} // Pass selection state only for wallet NFTs
+            onSelect={handleSelectNft} // Pass selection handler
+          />
         ))}
       </div>
     );
+  };
+
+  // Handle selecting/deselecting an NFT in the wallet tab
+  const handleSelectNft = (mint: string) => {
+    setSelectedWalletNfts(prevSelected => {
+      const newSelection = new Set(prevSelected);
+      if (newSelection.has(mint)) {
+        newSelection.delete(mint);
+      } else {
+        newSelection.add(mint);
+      }
+      return newSelection;
+    });
+  };
+
+  // Handle Select All / Deselect All for Wallet NFTs
+  const handleToggleSelectAllWallet = () => {
+    if (selectedWalletNfts.size === walletNfts.length) {
+      // If all are selected, deselect all
+      setSelectedWalletNfts(new Set());
+    } else {
+      // Otherwise, select all
+      setSelectedWalletNfts(new Set(walletNfts.map(nft => nft.mint)));
+    }
   };
 
   return (
@@ -958,7 +1017,7 @@ export default function OnChainNftStaking() {
                 onClick={handleClaimAllRewards}
                 disabled={!connected || isClaimingAll || stakingInProgress || unstakingInProgress || totalRewards <= 0}
                 size="lg"
-                variant="primary" // Assuming you have a primary variant, else use default
+                variant="default"
               >
                 {isClaimingAll ? (
                   <>
@@ -996,20 +1055,31 @@ export default function OnChainNftStaking() {
               <TabsContent value="wallet" className="mt-0">
                 {/* Add Stake All Button Here */} 
                 {walletNfts.length > 0 && (
-                  <div className="mb-4 flex justify-center"> 
+                  <div className="mb-4 flex justify-center gap-4"> 
+                    {/* Select / Deselect All Button */}
                     <Button
-                      onClick={handleStakeAll}
-                      disabled={!connected || isStakingAll || stakingInProgress || walletNfts.length === 0}
+                      onClick={handleToggleSelectAllWallet}
+                      disabled={!connected || walletNfts.length === 0}
                       size="lg"
-                      variant="primary" // Use primary or default variant
+                      variant="outline" 
+                    >
+                      {selectedWalletNfts.size === walletNfts.length ? "Deselect All" : "Select All"}
+                    </Button>
+                    
+                    {/* Stake Selected Button */}
+                    <Button
+                      onClick={handleStakeAll} // Re-using the logic, now scoped to selected
+                      disabled={!connected || isStakingAll || stakingInProgress || selectedWalletNfts.size === 0}
+                      size="lg"
+                      variant="default" 
                     >
                       {isStakingAll ? (
                         <>
                           <RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />
-                          Staking All...
+                          Staking Selected...
                         </>
                       ) : (
-                        `Stake All (${walletNfts.length})`
+                        `Stake Selected (${selectedWalletNfts.size})`
                       )}
                     </Button>
                   </div>
