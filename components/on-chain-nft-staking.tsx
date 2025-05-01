@@ -17,7 +17,7 @@ import {
   createStakeNftTransaction, 
   createUnstakeNftTransaction, 
   createClaimRewardsTransaction,
-  getStakingInfo,
+  getMultipleStakingInfo,
   isNftStaked,
   sendTransaction,
   getTokenBalance,
@@ -133,65 +133,27 @@ export default function OnChainNftStaking() {
         return // Early return is okay, finally will still run
       }
       
-      // Check staking status for each NFT with better error handling
-      const nftsWithStakingStatusPromises = baseNfts.map(async (nft) => {
-        try {
-          // Use the existing connection from useConnection hook
-          const stakingInfo = await getStakingInfo(
-            connection, 
-            publicKey,
-            new PublicKey(nft.mint)
-          )
-          
-          return {
-            ...nft,
-            isStaked: stakingInfo.isStaked,
-            stakedAt: stakingInfo.stakedAt,
-            daysStaked: stakingInfo.daysStaked,
-            currentReward: stakingInfo.currentReward,
-            metadataFetched: false, // Mark as not fetched yet
-          }
-        } catch (error) {
-          console.error(`Error getting staking info for ${nft.mint}:`, error)
-          // Add mint to error object if possible
-          if (error instanceof Error) {
-             (error as any).mint = nft.mint; 
-          }
-          // Don't propagate the error, just return the NFT without staking info
-          return {
-            ...nft,
-            isStaked: false,
-            metadataFetched: false,
-            // Add flag to indicate staking info fetch failed
-            stakingInfoError: true
-          }
-        }
+      // Batch fetch staking status for all NFTs
+      const mintAddresses = baseNfts.map(nft => new PublicKey(nft.mint));
+      const stakingInfoMap = await getMultipleStakingInfo(connection, publicKey, mintAddresses);
+      
+      // Process NFTs using the batched staking info
+      const nftsWithStakingStatus: StakedNFT[] = baseNfts.map(nft => {
+        const stakingInfo = stakingInfoMap.get(nft.mint) || { isStaked: false, stakedAt: 0, daysStaked: 0, currentReward: 0 };
+        return {
+          ...nft,
+          isStaked: stakingInfo.isStaked,
+          stakedAt: stakingInfo.stakedAt,
+          daysStaked: stakingInfo.daysStaked,
+          currentReward: stakingInfo.currentReward,
+          metadataFetched: false, // Initialize metadata fetched status
+        };
       });
       
-      // Use Promise.allSettled to handle partial failures
-      const stakingResults = await Promise.allSettled(nftsWithStakingStatusPromises);
-      const nftsWithStakingStatus: StakedNFT[] = stakingResults
-        .filter(result => result.status === 'fulfilled')
-        .map(result => (result as PromiseFulfilledResult<StakedNFT>).value);
-      
-      // Log any rejected promises
-      const rejectedResults = stakingResults.filter(result => result.status === 'rejected');
-      if (rejectedResults.length > 0) {
-        console.error(`${rejectedResults.length} NFTs failed to get staking status:`, 
-          rejectedResults.map(result => (result as PromiseRejectedResult).reason)
-        );
-      }
-      
-      console.log("NFTs with staking status (pre-metadata fetch):", nftsWithStakingStatus);
-
-      // Separate staked and unstaked NFTs *before* full metadata fetch
-      let stakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => nft.isStaked)
-      let unstakedBase: StakedNFT[] = nftsWithStakingStatus.filter(nft => !nft.isStaked)
-      
       // Update state with base data first for quicker initial render
-      setWalletNfts(unstakedBase);
-      setStakedNfts(stakedBase);
-      setTotalRewards(stakedBase.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
+      setWalletNfts(nftsWithStakingStatus.filter(nft => !nft.isStaked));
+      setStakedNfts(nftsWithStakingStatus.filter(nft => nft.isStaked));
+      setTotalRewards(stakedNfts.reduce((sum, nft) => sum + (nft.currentReward || 0), 0));
 
       // Now, fetch full metadata via proxy for all NFTs (staked and unstaked)
       // REMOVED: Redundant metadata fetching logic removed. fetchNFTsForWallet now handles this.

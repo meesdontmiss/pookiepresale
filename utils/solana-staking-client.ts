@@ -235,7 +235,6 @@ export async function createStakeNftTransaction(
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-        { pubkey: programAuthority, isSigner: false, isWritable: false },
       ],
       programId: STAKING_PROGRAM_ID,
       data: instructionData,
@@ -632,4 +631,82 @@ export async function hasEnoughSol(
     console.error(`Error checking SOL balance using endpoint ${connection.rpcEndpoint}:`, error);
     return false;
   }
+}
+
+/**
+ * Batch get staking information for multiple NFTs
+ */
+export async function getMultipleStakingInfo(
+  connection: Connection,
+  wallet: PublicKey,
+  nftMints: PublicKey[]
+): Promise<Map<string, {
+  isStaked: boolean;
+  stakedAt: number;
+  daysStaked: number;
+  currentReward: number
+}>> {
+  const resultsMap = new Map<string, { isStaked: boolean; stakedAt: number; daysStaked: number; currentReward: number }>();
+  if (!connection || !wallet || nftMints.length === 0) {
+    return resultsMap;
+  }
+
+  try {
+    // Derive all stake account PDAs
+    const stakeAccountPromises = nftMints.map(mint => findStakeAccountAddress(mint, wallet));
+    const stakeAccountAddressesWithBumps = await Promise.all(stakeAccountPromises);
+    const stakeAccountAddresses = stakeAccountAddressesWithBumps.map(([address]) => address);
+
+    // Fetch all account infos in a single batch
+    const accountInfos = await connection.getMultipleAccountsInfo(stakeAccountAddresses);
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // Process the results
+    accountInfos.forEach((accountInfo, index) => {
+      const mint = nftMints[index].toString();
+      if (accountInfo) {
+        // NFT is staked
+        try {
+          const data = Buffer.from(accountInfo.data);
+          if (data.length < 8 + 32 + 32 + 8) {
+            console.error(`Staking account data length for mint ${mint} too short.`);
+            resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0 });
+          } else {
+            const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
+            const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
+
+            const secondsStaked = Math.max(0, now - stakedAtTimestamp);
+            const daysStaked = secondsStaked / (60 * 60 * 24);
+            const currentReward = daysStaked * DAILY_REWARD_RATE;
+
+            resultsMap.set(mint, {
+              isStaked: true,
+              stakedAt: stakedAtTimestamp,
+              daysStaked: parseFloat(daysStaked.toFixed(2)),
+              currentReward: Math.floor(currentReward)
+            });
+          }
+        } catch (decodeError) {
+           console.error(`Error decoding staking account data for mint ${mint}:`, decodeError);
+           resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0 }); // Mark as staked but with default/zeroed info
+        }
+      } else {
+        // NFT is not staked
+        resultsMap.set(mint, {
+          isStaked: false,
+          stakedAt: 0,
+          daysStaked: 0,
+          currentReward: 0
+        });
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in getMultipleStakingInfo:', error);
+    // In case of a batch error, return an empty map or partial map based on available data
+    // For simplicity, return the map as it is (might be partially filled or empty)
+  }
+
+  return resultsMap;
 } 
