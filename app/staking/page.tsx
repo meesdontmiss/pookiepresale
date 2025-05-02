@@ -151,8 +151,8 @@ export default function StakingPage() {
           />
         )}
         
-        {/* Reduced particle count for better performance */}
-        {trailRef.current.map((point, i) => {
+        {/* Reduced particle count for better performance - COMMENTING OUT TRAIL */}
+        {/* {trailRef.current.map((point, i) => {
           // Size based on position in trail (newer points are larger)
           const size = 4 - i;
           
@@ -166,7 +166,7 @@ export default function StakingPage() {
               opacity={0.3}
             />
           );
-        })}
+        })} */}
       </svg>
 
       {/* 3D Scene as Background - takes up the full screen */}
