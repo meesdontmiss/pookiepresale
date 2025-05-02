@@ -1,4 +1,4 @@
-// "use client" // REMOVE: Cannot be client component if exporting metadata
+"use client"
 
 import type { Metadata } from "next"
 // import { usePathname } from 'next/navigation' // REMOVE: Cannot use hooks here

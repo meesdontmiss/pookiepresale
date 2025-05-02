@@ -66,19 +66,9 @@ export default function Home() {
     // Subscribe to all changes on contributions table
     const subscription = supabase
       .channel('public:contributions')
-      .on(
-        'postgres_changes', // Use the correct event type for table changes
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'contributions' 
-        },
-        () => {
-          // Handle new contributions for notifications if needed
-          // e.g., fetch latest contribution or trigger a refresh
-          console.log('New contribution detected via Supabase real-time.');
-        }
-      )
+      .on('INSERT', () => {
+        // Handle new contributions for notifications if needed
+      })
       .subscribe();
     
     return () => {
