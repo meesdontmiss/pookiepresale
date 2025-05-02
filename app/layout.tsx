@@ -1,18 +1,14 @@
-// REVERT: Remove "use client"
+// "use client" // REMOVE: Cannot be client component if exporting metadata
 
 import type { Metadata } from "next"
-// REVERT: Remove usePathname import
-// import { usePathname } from 'next/navigation'
+// import { usePathname } from 'next/navigation' // REMOVE: Cannot use hooks here
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
 import { BodyClassManager } from "@/components/layout/body-class-manager"
 // import "@/lib/rpc-patch"
 import "./globals.css"
-// REVERT: Remove cn import
-// import { cn } from "@/lib/utils";
-import CursorController from '@/components/layout/cursor-controller'
+// import { cn } from "@/lib/utils"; // REMOVE: Not needed here anymore
 
-// ADD: Restore metadata export
 export const metadata: Metadata = {
   title: "$POOKIE",
   description: "Pookie - Damn Pookie?! How u waddle like dat?",
@@ -59,13 +55,12 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // REVERT: Remove hook logic
+  // REMOVE hook logic
   // const pathname = usePathname(); 
   // const isStakingPage = pathname === '/staking';
-  // const cursorClass = isStakingPage ? 'cursor-default' : 'cursor-middle-finger';
 
   return (
-    // Apply base cursor class directly
+    // Restore original class
     <html lang="en" className="cursor-middle-finger">
       <head>
         <meta charSet="utf-8" />
@@ -88,12 +83,11 @@ export default function RootLayout({
         <meta name="twitter:site" content="@Pookiethepeng" />
         <meta name="twitter:image:alt" content="Pookie Memecoin" />
       </head>
-      {/* Apply base cursor class directly */}
+      {/* Restore original class */}
       <body className="min-h-screen bg-background antialiased cursor-middle-finger">
         <WalletProvider>
           <BodyClassManager />
           <GlobalSoundProvider />
-          <CursorController />
           {children}
         </WalletProvider>
       </body>
