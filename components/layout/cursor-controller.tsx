@@ -8,17 +8,21 @@ export default function CursorController() {
 
   useEffect(() => {
     const isStakingPage = pathname === '/staking'
-    const className = 'staking-cursor' // Class to toggle
+    
+    // Store original body cursor style
+    const originalBodyCursor = document.body.style.cursor;
 
     if (isStakingPage) {
-      document.documentElement.classList.add(className)
+      // Force default cursor on body for staking page
+      document.body.style.cursor = 'auto';
     } else {
-      document.documentElement.classList.remove(className)
+      // Restore original (or let CSS handle it if empty)
+      document.body.style.cursor = originalBodyCursor || '';
     }
 
-    // Cleanup function to remove class if component unmounts
+    // Cleanup function to restore original cursor style
     return () => {
-      document.documentElement.classList.remove(className)
+      document.body.style.cursor = originalBodyCursor || '';
     }
   }, [pathname]) // Re-run effect when pathname changes
 
