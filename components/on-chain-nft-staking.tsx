@@ -639,7 +639,7 @@ export default function OnChainNftStaking() {
           >
       <Card 
         className={cn(
-                      "relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200 h-full flex flex-col",
+                      "relative overflow-hidden bg-card/50 transition-all duration-200 h-full flex flex-col",
                       !isStaked && "cursor-pointer", // Pointer only for wallet cards
                       isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background" // Selection ring
                   )}
