@@ -646,10 +646,10 @@ export async function getMultipleStakingInfo(
           } else {
             // Corrected slice offsets based on Rust struct
             // stake_time: offset 65, size 8
-            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le');
+            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le'); // Corrected Version
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
             // last_claim_time: offset 73, size 8
-            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le');
+            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le'); // Corrected Version
             const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
             const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
