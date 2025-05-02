@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useWallet, useConnection } from '@solana/wallet-adapter-react'
-import {
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  SYSVAR_RENT_PUBKEY,
-  SYSVAR_CLOCK_PUBKEY
+import { 
+  PublicKey, 
+  Transaction, 
+  SystemProgram, 
+  SYSVAR_RENT_PUBKEY, 
+  SYSVAR_CLOCK_PUBKEY 
 } from '@solana/web3.js'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/use-toast'
@@ -19,9 +19,9 @@ import { Tabs, TabsList, TabsContent, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { fetchNFTsForWallet, NFT as BaseNFT } from '@/utils/solana-nft'
 import { ChevronRightIcon, ChevronLeftIcon, ClockIcon, CoinsIcon, RefreshCwIcon, AlertTriangleIcon, WalletIcon } from 'lucide-react'
-import {
-  createStakeNftTransaction,
-  createUnstakeNftTransaction,
+import { 
+  createStakeNftTransaction, 
+  createUnstakeNftTransaction, 
   createClaimRewardsTransaction,
   getMultipleStakingInfo,
   isNftStaked,
@@ -136,7 +136,7 @@ export default function OnChainNftStaking() {
   const [isStakingAll, setIsStakingAll] = useState<boolean>(false);
   const [selectedWalletNfts, setSelectedWalletNfts] = useState<Set<string>>(new Set());
   const [stakedSuccessMint, setStakedSuccessMint] = useState<string | null>(null);
-
+  
   const refreshTimer = useRef<NodeJS.Timeout | null>(null)
   const connectedRef = useRef<boolean>(false)
   const isFetchingRef = useRef<boolean>(false);
@@ -162,7 +162,7 @@ export default function OnChainNftStaking() {
   const fetchWalletData = useCallback(async () => {
     if (isFetchingRef.current) return;
     if (!publicKey || !connection) return
-
+    
     isFetchingRef.current = true;
     console.log("Fetching wallet data...");
     setError(null)
@@ -173,7 +173,7 @@ export default function OnChainNftStaking() {
       const timeoutId = setTimeout(() => {
         toast({ title: "Taking a while...", description: "Network might be busy.", duration: 5000 });
       }, 8000);
-
+      
       const baseNfts = await fetchNFTsForWallet(walletAddress)
       clearTimeout(timeoutId);
       console.log(`Fetched ${baseNfts.length} base NFTs`);
@@ -189,7 +189,7 @@ export default function OnChainNftStaking() {
       const mintAddresses = baseNfts.map(nft => new PublicKey(nft.mint));
       const stakingInfoMap = await getMultipleStakingInfo(connection, publicKey, mintAddresses);
       console.log("Staking Info Map:", stakingInfoMap);
-
+      
       const nftsWithStakingStatus: StakedNFT[] = baseNfts.map(nft => {
         const stakingInfo = stakingInfoMap.get(nft.mint) || { 
           isStaked: false, 
@@ -198,18 +198,18 @@ export default function OnChainNftStaking() {
           currentReward: 0, 
           lastClaimTime: 0 // Add default
         };
-        return {
+          return {
           ...nft, // Base NFT data
           // Spread all properties from stakingInfo
-          isStaked: stakingInfo.isStaked,
-          stakedAt: stakingInfo.stakedAt,
+            isStaked: stakingInfo.isStaked,
+            stakedAt: stakingInfo.stakedAt,
           // daysStaked: stakingInfo.daysStaked, // Not directly used now
           currentReward: stakingInfo.currentReward, // Keep fetched reward if needed elsewhere
           lastClaimTime: stakingInfo.lastClaimTime, // Add lastClaimTime here
           metadataFetched: false, // Needs implementation if fetching extra metadata
         };
       });
-
+      
       console.log("NFTs with Staking Status (Before Filter):", nftsWithStakingStatus);
 
       const filteredStakedNfts = nftsWithStakingStatus.filter(nft => nft.isStaked);
@@ -223,7 +223,7 @@ export default function OnChainNftStaking() {
 
     } catch (error) {
       console.error('Error fetching wallet data:', error)
-      setError("Failed to load NFTs. Please try refreshing.");
+        setError("Failed to load NFTs. Please try refreshing.");
     } finally {
       setIsLoading(false)
       setInitialLoading(false)
@@ -235,8 +235,8 @@ export default function OnChainNftStaking() {
   useEffect(() => {
     if (connected && publicKey) {
       if (!connectedRef.current) {
-        connectedRef.current = true;
-        checkWalletBalance();
+      connectedRef.current = true;
+      checkWalletBalance();
         fetchWalletData();
       }
     } else {
@@ -250,7 +250,7 @@ export default function OnChainNftStaking() {
          setSelectedWalletNfts(new Set()); // Clear selection
       }
     }
-  }, [connected, publicKey, fetchWalletData]);
+  }, [connected, publicKey, fetchWalletData]); 
 
   // Check wallet balance function
   const checkWalletBalance = async () => {
@@ -268,7 +268,7 @@ export default function OnChainNftStaking() {
   const handleRefresh = useCallback(() => {
     if (!connected || !publicKey) return;
     console.log("Manual refresh triggered.");
-    setError(null);
+    setError(null); 
     fetchWalletData();
     checkWalletBalance();
   }, [connected, publicKey, fetchWalletData]);
@@ -277,8 +277,8 @@ export default function OnChainNftStaking() {
 
   const handleStakeNft = async (nft: NFT) => {
       if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
-      if (stakingInProgress) return;
-
+    if (stakingInProgress) return;
+    
       playSound(CLICK_SOUND_PATH, 0.5);
       setStakingInProgress(true);
       setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
@@ -343,13 +343,13 @@ export default function OnChainNftStaking() {
           const errorMessage = error.message || 'Unstaking failed.';
           toast({ title: "Unstaking Error", description: errorMessage, variant: "destructive" });
           setError(errorMessage);
-      } finally {
+    } finally {
           setUnstakingInProgress(false);
           setSelectedNftMint("");
           setLoadingStates(prev => ({ ...prev, [nftMint]: false }));
-      }
+    }
   };
-
+  
   const handleClaimRewards = async (nftMint: string) => {
       if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
       if (!hasSufficientBalance) return toast({ title: "Insufficient SOL", variant: "destructive" });
@@ -394,13 +394,13 @@ export default function OnChainNftStaking() {
           const errorMessage = error.message || 'Claiming rewards failed.';
           toast({ title: "Claiming Error", description: errorMessage, variant: "destructive" });
           setError(errorMessage);
-      } finally {
+    } finally {
           setClaimingInProgress(false);
           setSelectedNftMint("");
           setLoadingStates(prev => ({ ...prev, [nftMint]: false }));
-      }
+    }
   };
-
+  
   const handleClaimAllRewards = async () => {
       if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
       if (!hasSufficientBalance) return toast({ title: "Insufficient SOL", variant: "destructive" });
@@ -415,89 +415,89 @@ export default function OnChainNftStaking() {
           return currentAccruedReward > BigInt(0);
       });
 
-      if (eligibleNfts.length === 0) {
+    if (eligibleNfts.length === 0) {
           toast({ title: "No rewards to claim", description: "No NFTs have rewards ready." });
           return;
-      }
+    }
 
-      setIsClaimingAll(true);
-      playSound(CLICK_SOUND_PATH, 0.3);
+    setIsClaimingAll(true);
+    playSound(CLICK_SOUND_PATH, 0.3);
       toast({ title: "Starting Claim All...", description: `Claiming for ${eligibleNfts.length} NFTs.` });
 
-      let successCount = 0;
-      let failCount = 0;
+    let successCount = 0;
+    let failCount = 0;
 
-      for (const nft of eligibleNfts) {
-          try {
-              setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
-              console.log(`Claiming rewards for ${nft.mint}...`);
+    for (const nft of eligibleNfts) {
+      try {
+        setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
+        console.log(`Claiming rewards for ${nft.mint}...`);
               const transaction = await createClaimRewardsTransaction(connection, publicKey, new PublicKey(nft.mint));
-              await sendTransaction(transaction, connection, { publicKey, signTransaction });
-              successCount++;
-          } catch (error: any) {
-              failCount++;
-              console.error(`Error claiming rewards for ${nft.mint}:`, error);
-          } finally {
-              setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
-          }
-          await new Promise(resolve => setTimeout(resolve, 500)); // Delay
+        await sendTransaction(transaction, connection, { publicKey, signTransaction });
+        successCount++;
+      } catch (error: any) {
+        failCount++;
+        console.error(`Error claiming rewards for ${nft.mint}:`, error);
+      } finally {
+         setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
       }
+          await new Promise(resolve => setTimeout(resolve, 500)); // Delay
+    }
 
-      playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
-      toast({
-          title: "Claim All Finished",
+    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+    toast({ 
+      title: "Claim All Finished",
           description: `Success: ${successCount}, Failed: ${failCount}. Refreshing...`,
           variant: failCount > 0 ? "destructive" : "default"
-      });
+    });
 
-      await fetchWalletData();
-      setIsClaimingAll(false);
+    await fetchWalletData(); 
+    setIsClaimingAll(false);
   };
-
+  
   const handleStakeAll = async () => {
       if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
       if (!hasSufficientBalance) return toast({ title: "Insufficient SOL", variant: "destructive" });
       if (isStakingAll || stakingInProgress) return;
 
-      const nftsToStake = walletNfts.filter(nft => selectedWalletNfts.has(nft.mint));
-      if (nftsToStake.length === 0) {
+    const nftsToStake = walletNfts.filter(nft => selectedWalletNfts.has(nft.mint));
+    if (nftsToStake.length === 0) {
           toast({ title: "No NFTs selected" });
           return;
-      }
+    }
 
-      setIsStakingAll(true);
-      playSound(CLICK_SOUND_PATH, 0.3);
+    setIsStakingAll(true);
+    playSound(CLICK_SOUND_PATH, 0.3);
       toast({ title: "Starting Stake Selected...", description: `Staking ${nftsToStake.length} NFTs.` });
 
-      let successCount = 0;
-      let failCount = 0;
+    let successCount = 0;
+    let failCount = 0;
 
-      for (const nft of nftsToStake) {
-          try {
-              setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
+    for (const nft of nftsToStake) {
+      try {
+        setLoadingStates(prev => ({ ...prev, [nft.mint]: true })); 
               console.log(`[StakeAll] Processing ${nft.mint}`);
               const transaction = await createStakeNftTransaction(connection, publicKey, new PublicKey(nft.mint));
-              await sendTransaction(transaction, connection, { publicKey, signTransaction });
-              successCount++;
+        await sendTransaction(transaction, connection, { publicKey, signTransaction });
+        successCount++;
               await playSuccessSound();
-          } catch (error: any) {
-              failCount++;
+      } catch (error: any) {
+        failCount++;
               console.error(`[StakeAll] Error staking ${nft.mint}:`, error);
-          } finally {
-              setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
-          }
-          await new Promise(resolve => setTimeout(resolve, 500)); // Delay
+      } finally {
+         setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
       }
+          await new Promise(resolve => setTimeout(resolve, 500)); // Delay
+    }
 
-      playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
-      toast({
+    playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+    toast({ 
           title: "Stake Selected Finished",
           description: `Success: ${successCount}, Failed: ${failCount}. Refreshing...`,
           variant: failCount > 0 ? "destructive" : "default"
       });
 
-      await fetchWalletData();
-      setIsStakingAll(false);
+    await fetchWalletData(); 
+    setIsStakingAll(false);
       setSelectedWalletNfts(new Set()); // Clear selection
       if (successCount > 0) setActiveTab('staked');
   };
@@ -516,10 +516,10 @@ export default function OnChainNftStaking() {
 
   // --- NFT Card Component ---
   type NftCardProps = {
-      nft: StakedNFT;
-      isStaked?: boolean;
-      isSelected?: boolean;
-      onSelect?: (mint: string) => void;
+    nft: StakedNFT;
+    isStaked?: boolean;
+    isSelected?: boolean;
+    onSelect?: (mint: string) => void;
       stakedSuccessMint: string | null; // Pass state for visual feedback
   };
 
@@ -532,15 +532,15 @@ export default function OnChainNftStaking() {
   }: NftCardProps) => {
       // Removed unused connection/publicKey from here, use props/handlers
       const [imageUrl, setImageUrl] = useState<string | null>(nft.image || '/images/pookie_load.gif');
-      const [imageError, setImageError] = useState(false);
-      const [imageLoaded, setImageLoaded] = useState(false);
+    const [imageError, setImageError] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
       const [currentAttemptIndex, setCurrentAttemptIndex] = useState(0);
       const [liveReward, setLiveReward] = useState<bigint>(BigInt(0));
       const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
 
       // Derive possible image URLs only once
-      const possibleImageUrls = useMemo(() => {
-          const urls = [nft.image];
+    const possibleImageUrls = useMemo(() => {
+      const urls = [nft.image];
           if (nft.alternativeImageUrls) urls.push(...nft.alternativeImageUrls);
           // Add hardcoded fallback if needed, e.g., Arweave or generic Pookie image
           urls.push(`https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs`); // Example fallback
@@ -608,11 +608,11 @@ export default function OnChainNftStaking() {
 
 
       // Handle card click for selection
-      const handleCardClick = () => {
-          if (!isStaked && onSelect) { // Only allow selection on wallet NFTs
-              onSelect(nft.mint);
-          }
-      };
+    const handleCardClick = () => {
+      if (!isStaked && onSelect) { // Only allow selection on wallet NFTs
+        onSelect(nft.mint);
+      }
+    };
 
       // Memoized formatted reward
       const formattedLiveReward = useMemo(() => {
@@ -628,7 +628,7 @@ export default function OnChainNftStaking() {
       const generalLoading = isActionLoading || isClaimingAll || isStakingAll;
 
 
-      return (
+    return (
           <motion.div
               layout // Animate layout changes (e.g., moving between tabs)
               initial={{ opacity: 0 }}
@@ -637,8 +637,8 @@ export default function OnChainNftStaking() {
               transition={{ duration: 0.3 }}
               className={cn("relative", generalLoading && "opacity-50 pointer-events-none")} // Dim card when general loading
           >
-              <Card
-                  className={cn(
+      <Card 
+        className={cn(
                       "relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200 h-full flex flex-col",
                       !isStaked && "cursor-pointer", // Pointer only for wallet cards
                       isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background" // Selection ring
@@ -653,7 +653,7 @@ export default function OnChainNftStaking() {
                               <Skeleton className="absolute inset-0 w-full h-full" />
                           )}
                           {/* Image */}
-                          <Image
+            <Image
                               key={imageUrl} // Force re-render if URL changes
                               src={imageUrl || '/images/pookie_load.gif'} // Fallback to placeholder
                               alt={nft.name || 'Pookie NFT'}
@@ -661,15 +661,15 @@ export default function OnChainNftStaking() {
                               objectFit="cover"
                               className={`transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                               onLoad={() => { console.log(`Image loaded: ${imageUrl}`); setImageLoaded(true); setImageError(false); }}
-                              onError={handleImageError}
+              onError={handleImageError}
                               unoptimized={true} // If using external URLs like Arweave/IPFS often
                           />
                           {/* Loading/Action Overlay */}
                           {isActionLoading && (
                               <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
-                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                              </div>
-                          )}
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            )}
                           {/* Staked Success Overlay */}
                            <AnimatePresence>
                               {showSuccessOverlay && (
@@ -683,20 +683,20 @@ export default function OnChainNftStaking() {
                                   </motion.div>
                               )}
                           </AnimatePresence>
-                      </div>
+          </div>
 
                       {/* Info Overlays */}
                       {isStaked && nft.stakedAt && (
                           <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center shadow-md">
                               <ClockIcon className="w-2.5 h-2.5 mr-1" />
                               Staked: {formatTimeAgo(nft.stakedAt)}
-                          </div>
+              </div>
                       )}
                       {isStaked && (
                           <div className="absolute bottom-1 right-1 bg-primary/80 text-primary-foreground text-[10px] px-1.5 py-0.5 rounded flex items-center shadow-md backdrop-blur-sm">
                               <CoinsIcon className="w-2.5 h-2.5 mr-1" />
                               Rewards: {formattedLiveReward}
-                          </div>
+              </div>
                       )}
                   </CardHeader>
 
@@ -719,22 +719,22 @@ export default function OnChainNftStaking() {
                               >
                                   {isClaimingThis ? 'Claiming...' : 'Claim'}
                               </Button>
-                              <Button
-                                  variant="destructive"
-                                  size="sm"
+              <Button 
+                variant="destructive" 
+                size="sm"
                                   className="flex-1"
                                   disabled={isActionLoading || isUnstakingThis || isClaimingThis}
                                   onClick={(e) => { e.stopPropagation(); handleUnstakeNft(nft.mint); }} // Prevent card selection click
                               >
                                   {isUnstakingThis ? 'Unstaking...' : 'Unstake'}
-                              </Button>
+              </Button>
                           </div>
-                      ) : (
+          ) : (
                           // --- Unstaked Button ---
-                          <Button
-                              variant="default"
-                              size="sm"
-                              className="w-full"
+            <Button 
+              variant="default" 
+              size="sm"
+              className="w-full"
                               disabled={isActionLoading || isStakingThis}
                               onClick={(e) => {
                                   e.stopPropagation(); // Prevent card selection click if button is clicked
@@ -742,12 +742,12 @@ export default function OnChainNftStaking() {
                               }}
                           >
                               {isStakingThis ? 'Staking...' : 'Stake NFT'}
-                          </Button>
-                      )}
-                  </CardFooter>
-              </Card>
+            </Button>
+          )}
+        </CardFooter>
+      </Card>
           </motion.div>
-      );
+    );
   });
   NftCard.displayName = 'NftCard'; // Add display name for debugging
 
@@ -759,10 +759,10 @@ export default function OnChainNftStaking() {
     if (!connected) {
       return (
         <div className="flex flex-col items-center justify-center p-8 text-center">
-           <WalletIcon className="w-12 h-12 text-muted-foreground mb-4" />
+          <WalletIcon className="w-12 h-12 text-muted-foreground mb-4" />
            <p className="text-muted-foreground mb-4">Connect your wallet to view and stake your Pookie NFTs.</p>
            <WalletMultiButton className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md" />
-         </div>
+        </div>
       );
     }
 
@@ -791,7 +791,7 @@ export default function OnChainNftStaking() {
              <><CoinsIcon className="w-12 h-12 text-muted-foreground mb-4" /><p className="text-muted-foreground">No NFTs currently staked.</p></>
            ) : (
              <><AlertTriangleIcon className="w-12 h-12 text-muted-foreground mb-4" /><p className="text-muted-foreground">No eligible Pookie NFTs found in your wallet.</p></>
-           )}
+          )}
         </div>
       );
     }
@@ -800,9 +800,9 @@ export default function OnChainNftStaking() {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {nfts.map((nft) => (
-          <NftCard
-            key={nft.mint}
-            nft={nft}
+          <NftCard 
+            key={nft.mint} 
+            nft={nft} 
             isStaked={isStakedTab}
             isSelected={!isStakedTab && selectedWalletNfts.has(nft.mint)}
             onSelect={!isStakedTab ? handleSelectNft : undefined} // Only allow selection in wallet tab
@@ -855,24 +855,24 @@ export default function OnChainNftStaking() {
         <div className="flex justify-between items-center">
           {/* Title moved or removed - assumed to be handled by parent page */}
           {/* <h2 className="text-2xl font-bold">NFT Staking</h2> */}
-          <Button
-            variant="outline"
-            size="sm"
+          <Button 
+            variant="outline" 
+            size="sm" 
             onClick={handleRefresh}
             disabled={initialLoading || isLoading || !connected}
             className="ml-auto" // Align refresh button to the right if title is removed
           >
-            <RefreshCwIcon size={16} className={`mr-2 ${(initialLoading || isLoading) ? 'animate-spin' : ''}`} />
+            <RefreshCwIcon size={16} className={`mr-2 ${(initialLoading || isLoading) ? 'animate-spin' : ''}`} /> 
             Refresh
           </Button>
         </div>
-
+        
         {/* Stats Panel - Only show if connected and NFTs are staked */}
         {connected && stakedNfts.length > 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-background/60 border border-primary/20 rounded-lg p-4 mb-4 shadow-lg">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div className="space-y-1">
-                 <p className="text-sm text-muted-foreground">Staked NFTs</p>
+                <p className="text-sm text-muted-foreground">Staked NFTs</p>
                  <p className="text-2xl font-bold text-primary">{stakedNfts.length}</p>
               </div>
               <div className="space-y-1">
@@ -881,7 +881,7 @@ export default function OnChainNftStaking() {
                  <p className="text-2xl font-bold text-primary">{formattedTotalRewards}</p>
               </div>
               <div className="space-y-1">
-                 <p className="text-sm text-muted-foreground">Daily Earnings</p>
+                <p className="text-sm text-muted-foreground">Daily Earnings</p>
                  <p className="text-2xl font-bold text-primary">{stakedNfts.length * DAILY_REWARD_RATE_TOKENS}</p>
               </div>
               <div className="space-y-1">
@@ -906,7 +906,7 @@ export default function OnChainNftStaking() {
             </div>
           </motion.div>
         )}
-
+        
         {/* Tabs for Wallet/Staked NFTs */}
         <Tabs defaultValue="wallet" value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid grid-cols-2 w-full mb-4">
@@ -917,32 +917,32 @@ export default function OnChainNftStaking() {
                Staked NFTs ({stakedNfts.length})
             </TabsTrigger>
           </TabsList>
-
+          
           {/* Buttons Row for Wallet Tab */}
           {activeTab === 'wallet' && connected && walletNfts.length > 0 && (
             <div className="mb-4 flex justify-center items-center gap-4">
-               <Button
-                   onClick={handleToggleSelectAllWallet}
-                   disabled={!connected || walletNfts.length === 0}
-                   size="lg"
-                   variant="outline"
-               >
+                    <Button
+                      onClick={handleToggleSelectAllWallet}
+                      disabled={!connected || walletNfts.length === 0}
+                      size="lg"
+                      variant="outline" 
+                    >
                    {selectedWalletNfts.size === walletNfts.length && walletNfts.length > 0 ? "Deselect All" : "Select All"}
-               </Button>
-               <Button
+                    </Button>
+                    <Button
                    onClick={handleStakeAll}
                    disabled={!connected || isStakingAll || selectedWalletNfts.size === 0}
-                   size="lg"
+                      size="lg"
                    className="bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-md hover:scale-105 transition-transform"
-               >
-                   {isStakingAll ? (
+                    >
+                      {isStakingAll ? (
                        <><RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />Staking...</>
-                   ) : (
-                       `Stake Selected (${selectedWalletNfts.size})`
-                   )}
-               </Button>
-            </div>
-          )}
+                      ) : (
+                        `Stake Selected (${selectedWalletNfts.size})`
+                      )}
+                    </Button>
+                  </div>
+                )}
 
           {/* Tab Content with Animation */}
           <AnimatePresence mode="wait">
@@ -959,11 +959,11 @@ export default function OnChainNftStaking() {
                 {/* Render Content based on Active Tab */}
                  {activeTab === 'wallet' && renderNftGrid(walletNfts, false)}
                  {activeTab === 'staked' && renderNftGrid(stakedNfts, true)}
-              </div>
+                </div>
             </motion.div>
           </AnimatePresence>
         </Tabs>
       </div>
     </ErrorBoundary>
   )
-}
+} 

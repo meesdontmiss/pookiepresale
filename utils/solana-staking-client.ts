@@ -197,7 +197,7 @@ export async function createStakeNftTransaction(
     // Add compute budget instructions first
     transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
     transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }));
-    
+
     // Instruction data
     const instructionData = Buffer.from([StakingInstruction.StakeNft]);
 
@@ -262,9 +262,9 @@ export async function createUnstakeNftTransaction(
 
     // Initialize transaction
     const transaction = new Transaction();
-    
+
     // Add compute budget instructions first (Optional but good practice)
-    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 })); 
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
     transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 })); // Unstaking is usually less CU intensive
 
     // Instruction data
