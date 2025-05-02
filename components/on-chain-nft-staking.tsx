@@ -367,6 +367,15 @@ export default function OnChainNftStaking() {
       const elapsedSeconds = BigInt(Math.max(0, Math.floor(nowSeconds - startTime)));
       const currentAccruedReward = elapsedSeconds * REWARD_RATE_PER_SECOND_WITH_DECIMALS;
 
+      // --- ADDED LOGGING --- 
+      console.log(`[handleClaimRewards] Attempting claim for ${nftMint}`);
+      console.log(`  Start Time (Unix): ${startTime}`);
+      console.log(`  Now (Unix): ${nowSeconds}`);
+      console.log(`  Elapsed Seconds: ${elapsedSeconds.toString()}`);
+      console.log(`  Reward Rate Per Second (with decimals): ${REWARD_RATE_PER_SECOND_WITH_DECIMALS.toString()}`);
+      console.log(`  Calculated Raw Reward: ${currentAccruedReward.toString()}`);
+      // --- END LOGGING --- 
+
       if (currentAccruedReward <= BigInt(0)) {
           toast({ title: "No Rewards Yet", description: "Not enough time has passed to claim rewards." });
           return;

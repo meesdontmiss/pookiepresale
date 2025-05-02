@@ -29,7 +29,7 @@ import { Buffer } from 'buffer';
 
 // Constants
 // This is the correct program ID for mainnet deployment
-const PROGRAM_ID = process.env.NEXT_PUBLIC_STAKING_PROGRAM_ID || '7oE48Svc6T7RoLtot8DyTpU3yY3d7EACgNEwbACwycRF';
+const PROGRAM_ID = process.env.NEXT_PUBLIC_STAKING_PROGRAM_ID || 'FWcUFBDFW6Y677jcSb6cgjpYQ9dYpnNCfBWkDChHEGuq';
 const COLLECTION_ADDRESS = process.env.NEXT_PUBLIC_POOKIE_COLLECTION_ADDRESS || '11111111111111111111111111111111';
 const POOKIE_TOKEN_MINT = process.env.NEXT_PUBLIC_POOKIE_TOKEN_MINT || '11111111111111111111111111111111';
 const TREASURY_ADDRESS = process.env.NEXT_PUBLIC_TREASURY_ADDRESS || '11111111111111111111111111111111';
@@ -492,15 +492,12 @@ export async function getStakingInfo(
     const accountInfo = await connection.getAccountInfo(stakingAccount);
     if (!accountInfo) return defaultInfo;
 
-    // Decode account data (NOW we know accountInfo is not null)
-    const data = Buffer.from(accountInfo.data);
-    if (data.length < 81) { // Use expected length 81
-      console.error(`Staking account data length (${data.length}) for mint ${nftMint.toString()} is less than expected (81). Returning default info.`);
-      // Still return isStaked=true because account exists, but data is bad/short
-      return { ...defaultInfo, isStaked: true }; 
-    }
-
     // Decode account data (assuming specific layout)
+    const data = Buffer.from(accountInfo.data);
+    if (data.length < 8 + 32 + 32 + 8 + 8) { 
+      console.error('Staking account data length too short to decode timestamps');
+      return { ...defaultInfo, isStaked: true };
+    }
     const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
     const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
     const lastClaimedAtTimestampBN = new BN(data.slice(8 + 32 + 32 + 8, 8 + 32 + 32 + 8 + 8), 'le');
@@ -638,19 +635,21 @@ export async function getMultipleStakingInfo(
     accountInfos.forEach((accountInfo, index) => {
       const mint = nftMints[index].toString();
       if (accountInfo) {
-        // Account exists, NFT *might* be staked (or data is bad)
+        // NFT is staked
         try {
           const data = Buffer.from(accountInfo.data);
+          // Corrected length check (1 + 32 + 32 + 8 + 8 = 81)
           const expectedDataLength = 81; 
           if (data.length < expectedDataLength) { 
             console.error(`Staking account data length for mint ${mint} (${data.length}) is less than expected (${expectedDataLength}).`);
-            // Account exists but data is short/invalid. Mark as staked but use default times.
             resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
           } else {
-            // Account exists AND data length is correct, decode timestamps
-            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le');
+            // Corrected slice offsets based on Rust struct
+            // stake_time: offset 65, size 8
+            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le'); // Corrected Version
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
-            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le');
+            // last_claim_time: offset 73, size 8
+            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le'); // Corrected Version
             const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
             const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
@@ -659,7 +658,7 @@ export async function getMultipleStakingInfo(
             const currentReward = daysSinceStart * DAILY_REWARD_RATE;
 
             resultsMap.set(mint, {
-              isStaked: true, // Account exists and data seems valid
+              isStaked: true,
               stakedAt: stakedAtTimestamp,
               daysStaked: parseFloat(daysSinceStart.toFixed(2)),
               currentReward: Math.floor(currentReward),
@@ -668,11 +667,10 @@ export async function getMultipleStakingInfo(
           }
         } catch (decodeError) {
            console.error(`Error decoding staking account data for mint ${mint}:`, decodeError);
-           // Account exists but decoding failed. Mark as staked but use default times.
-           resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
+           resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 }); // Mark as staked but with default/zeroed info
         }
       } else {
-        // Account does NOT exist, NFT is definitely not staked
+        // NFT is not staked
         resultsMap.set(mint, {
           isStaked: false,
           stakedAt: 0,
