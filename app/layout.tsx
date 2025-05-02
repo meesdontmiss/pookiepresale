@@ -1,10 +1,11 @@
-"use client"
+// "use client" // Removed
 
 import type { Metadata } from "next"
 // import { usePathname } from 'next/navigation' // REMOVE: Cannot use hooks here
-import { WalletProvider } from '@/components/wallet-provider'
-import { GlobalSoundProvider } from '@/components/global-sound-provider'
-import { BodyClassManager } from "@/components/layout/body-class-manager"
+import { ClientProviders } from '@/components/client-providers' // Import the new wrapper
+// import { WalletProvider } from '@/components/wallet-provider' // Moved
+// import { GlobalSoundProvider } from '@/components/global-sound-provider' // Moved
+// import { BodyClassManager } from "@/components/layout/body-class-manager" // Moved
 // import "@/lib/rpc-patch"
 import "./globals.css"
 // import { cn } from "@/lib/utils"; // REMOVE: Not needed here anymore
@@ -85,11 +86,10 @@ export default function RootLayout({
       </head>
       {/* Restore original class */}
       <body className="min-h-screen bg-background antialiased cursor-middle-finger">
-        <WalletProvider>
-          <BodyClassManager />
-          <GlobalSoundProvider />
+        {/* Use the ClientProviders wrapper here */}
+        <ClientProviders>
           {children}
-        </WalletProvider>
+        </ClientProviders>
       </body>
     </html>
   )
