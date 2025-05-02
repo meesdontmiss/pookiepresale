@@ -612,9 +612,10 @@ export async function getMultipleStakingInfo(
   isStaked: boolean;
   stakedAt: number;
   daysStaked: number;
-  currentReward: number
+  currentReward: number;
+  lastClaimTime: number;
 }>> {
-  const resultsMap = new Map<string, { isStaked: boolean; stakedAt: number; daysStaked: number; currentReward: number }>();
+  const resultsMap = new Map<string, { isStaked: boolean; stakedAt: number; daysStaked: number; currentReward: number; lastClaimTime: number }>();
   if (!connection || !wallet || nftMints.length === 0) {
     return resultsMap;
   }
@@ -639,7 +640,7 @@ export async function getMultipleStakingInfo(
           const data = Buffer.from(accountInfo.data);
           if (data.length < 8 + 32 + 32 + 8 + 8) { 
             console.error(`Staking account data length for mint ${mint} too short.`);
-            resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0 });
+            resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
           } else {
             const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
@@ -655,12 +656,13 @@ export async function getMultipleStakingInfo(
               isStaked: true,
               stakedAt: stakedAtTimestamp,
               daysStaked: parseFloat(daysSinceStart.toFixed(2)),
-              currentReward: Math.floor(currentReward)
+              currentReward: Math.floor(currentReward),
+              lastClaimTime: lastClaimedAtTimestamp
             });
           }
         } catch (decodeError) {
            console.error(`Error decoding staking account data for mint ${mint}:`, decodeError);
-           resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0 }); // Mark as staked but with default/zeroed info
+           resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 }); // Mark as staked but with default/zeroed info
         }
       } else {
         // NFT is not staked
@@ -668,7 +670,8 @@ export async function getMultipleStakingInfo(
           isStaked: false,
           stakedAt: 0,
           daysStaked: 0,
-          currentReward: 0
+          currentReward: 0,
+          lastClaimTime: 0
         });
       }
     });
