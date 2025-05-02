@@ -59,6 +59,13 @@ interface StakedNFT extends NFT {
   currentReward?: number
 }
 
+// --- Add reward rate constant ---
+// Assuming 9 decimals for the reward token $POOKIE
+const POOKIE_DECIMALS = 9;
+const DAILY_REWARD_RATE_TOKENS = 250; // 250 $POOKIE per day
+const REWARD_RATE_PER_SECOND_WITH_DECIMALS = BigInt(DAILY_REWARD_RATE_TOKENS * (10 ** POOKIE_DECIMALS)) / BigInt(86400);
+// --- End Add reward rate constant ---
+
 // Error Fallback component for error boundary
 const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error, resetErrorBoundary: () => void }) => (
   <div className="p-6 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
@@ -748,174 +755,123 @@ export default function OnChainNftStaking() {
     isSelected = false, 
     onSelect,
     stakedSuccessMint
-  }: NftCardProps) => { // Use the defined type here
-    const isLoading = loadingStates[nft.mint] || false;
-    const [imageError, setImageError] = useState(false);
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [retryCount, setRetryCount] = useState(0);
-    const [currentImageIndex, setCurrentImageIndex] = useState(0);
-    const maxRetries = 2;
-    
-    // Define fallback image paths
-    const fallbackImagePath = '/images/pookie-smashin.gif';
-    
-    // Create an array of possible image URLs to try
-    const possibleImageUrls = useMemo(() => {
-      // Start with the main image
-      const urls = [nft.image];
-      
-      // Add alternative URLs if provided from the backend
-      if (nft.alternativeImageUrls && Array.isArray(nft.alternativeImageUrls)) {
-        urls.push(...nft.alternativeImageUrls);
+  }: NftCardProps) => {
+    const { connection } = useConnection();
+    const { publicKey } = useWallet();
+    const [imageUrl, setImageUrl] = useState<string | null>(nft.image || '/images/pookie_load.gif'); // Start with URI or placeholder
+    const [loading, setLoading] = useState(false); // Local loading state for actions
+    const [metadataLoaded, setMetadataLoaded] = useState(nft.metadataFetched || false);
+    const [alternativeImagesTried, setAlternativeImagesTried] = useState(0); // Track image fallback attempts
+    const [showSuccess, setShowSuccess] = useState(false); // Local state for success overlay
+
+    // --- Add live reward state ---
+    const [liveReward, setLiveReward] = useState<bigint>(BigInt(0));
+    // --- End Add live reward state ---
+
+    // Image Loading and Fallback Logic
+    useEffect(() => {
+      // ... existing code ...
+    }, [nft.image, nft.alternativeImageUrls, alternativeImagesTried]);
+
+    // --- Add live reward calculation effect ---
+    useEffect(() => {
+      if (!isStaked || !publicKey) {
+        setLiveReward(BigInt(0)); // Reset if not staked or wallet disconnected
+        return; // Don't run timer if not staked
       }
-      
-      // Add mint-based fallback
-      urls.push(`https://arweave.net/DuHCK6NWnzZKUfNbTDvLMnkXKsZbD6iOaG3DDkXj3rs`);
-      
-      // Try gateway variations for IPFS
-      if (nft.image && nft.image.includes('ipfs://')) {
-        const ipfsHash = nft.image.replace('ipfs://', '');
-        urls.push(`https://gateway.pinata.cloud/ipfs/${ipfsHash}`);
-        urls.push(`https://cloudflare-ipfs.com/ipfs/${ipfsHash}`);
-        urls.push(`https://ipfs.io/ipfs/${ipfsHash}`);
-      }
-      
-      // Add the final fallback image
-      urls.push(fallbackImagePath);
-      
-      // Filter out duplicates and nulls, then explicitly convert Set to Array
-      return Array.from(new Set(urls.filter(Boolean)));
-    }, [nft.image, nft.alternativeImageUrls]);
-    
-    // Function to handle image load errors with retry and URL cycling
+
+      // Function to calculate reward based on time elapsed
+      const calculateLiveReward = () => {
+        const startTime = nft.lastClaimTime && nft.lastClaimTime > 0 
+          ? nft.lastClaimTime 
+          : nft.stakedAt;
+
+        if (!startTime) {
+          setLiveReward(BigInt(0)); // No start time, no reward
+          return;
+        }
+
+        const nowSeconds = Date.now() / 1000;
+        const elapsedSeconds = BigInt(Math.max(0, Math.floor(nowSeconds - startTime))); // Use floor and ensure non-negative
+
+        const currentAccruedReward = elapsedSeconds * REWARD_RATE_PER_SECOND_WITH_DECIMALS;
+        setLiveReward(currentAccruedReward);
+      };
+
+      // Calculate immediately on mount/update
+      calculateLiveReward();
+
+      // Set up interval to update every second
+      const intervalId = setInterval(calculateLiveReward, 1000);
+
+      // Clean up interval on component unmount or when dependencies change
+      return () => clearInterval(intervalId);
+
+    }, [isStaked, nft.stakedAt, nft.lastClaimTime, publicKey]); // Rerun if staking status, times, or wallet changes
+    // --- End Add live reward calculation effect ---
+
+    // Success overlay effect
+    useEffect(() => {
+      // ... existing code ...
+    }, [stakedSuccessMint, nft.mint]);
+
+    // Handle individual image loading errors
     const handleImageError = () => {
-      // Add a small delay before trying the next URL or retry
-      setTimeout(() => {
-      // Try the next URL in our list
-      if (currentImageIndex < possibleImageUrls.length - 1) {
-        setCurrentImageIndex(prev => prev + 1);
-        console.log(`Trying alternative URL for ${nft.name}: ${possibleImageUrls[currentImageIndex + 1]}`);
-      } 
-      // Or retry with the same URL if we haven't exceeded retries
-      else if (retryCount < maxRetries) {
-        setRetryCount(prev => prev + 1);
-        console.log(`Retrying image load for ${nft.name}, attempt ${retryCount + 1}/${maxRetries}`);
-      } 
-      // Use fallback after exhausting all options
-      else {
-        setImageError(true);
-        setImageLoaded(true);
-        console.log(`Using fallback image for ${nft.name} after all attempts failed`);
-      }
-      }, 300); // Increased delay slightly (300ms)
+      // ... existing code ...
     };
 
-    // Compute the current image source based on our fallback strategy
-    const imageSrc = imageError 
-      ? fallbackImagePath 
-      : possibleImageUrls[currentImageIndex] || fallbackImagePath;
-
-    // Handler for clicking the card itself (for selection)
+    // Handle card click for selection in wallet tab
     const handleCardClick = () => {
-      if (!isStaked && onSelect) { // Only allow selection on wallet NFTs
-        onSelect(nft.mint);
-      }
+      // ... existing code ...
     };
 
-    const showSuccessOverlay = nft.mint === stakedSuccessMint;
+    // Determine button states
+    const isStaking = loadingStates[nft.mint] && selectedNftMint === nft.mint && stakingInProgress;
+    const isUnstaking = loadingStates[nft.mint] && selectedNftMint === nft.mint && unstakingInProgress;
+    const isClaiming = loadingStates[nft.mint] && selectedNftMint === nft.mint && claimingInProgress;
+    const generalLoading = loadingStates[nft.mint] || isClaimingAll || isStakingAll; // General loading for dimming/disabling
+
+    // --- Format live reward for display ---
+    const formattedLiveReward = useMemo(() => {
+      return (Number(liveReward) / (10 ** POOKIE_DECIMALS)).toFixed(4); // Adjust precision as needed
+    }, [liveReward]);
+    // --- End Format live reward for display ---
 
     return (
-      <Card 
-        className={cn(
-          "relative overflow-hidden bg-card/50 hover:bg-card/80 transition-all duration-200 cursor-pointer",
-          isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background", // Style for selected card
-          isStaked && "cursor-default" // Don't show pointer cursor for staked cards
-        )}
-        onClick={handleCardClick} // Click handler for selection
+      <motion.div
+        // ... existing code ...
       >
-        <CardHeader className="p-4">
-          <CardTitle className="text-sm font-medium truncate">{nft.name}</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="relative aspect-square">
-            {/* Show skeleton while loading */}
-            {!imageLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-                <Skeleton className="w-full h-full" />
+        <Card 
+          // ... existing code ...
+        >
+          <CardHeader className="p-0 relative">
+            {/* Staked At time */}
+            {isStaked && nft.stakedAt && (
+              <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center shadow-md">
+                <ClockIcon className="w-2.5 h-2.5 mr-1" />
+                Staked: {formatTimeAgo(nft.stakedAt)}
               </div>
             )}
-            {/* NFT Image */}
-            <Image
-              key={`${nft.mint}-${currentImageIndex}-${retryCount}`} // Add indices to force new image element on changes
-              src={imageSrc}
-              alt={nft.name}
-              width={300}
-              height={300}
-              className={`w-full h-full object-cover transition-opacity duration-200 ${
-                imageLoaded ? 'opacity-100' : 'opacity-0'
-              }`}
-              onLoad={() => setImageLoaded(true)}
-              onError={handleImageError}
-              priority={isStaked} // Prioritize loading staked NFTs
-            />
-            {/* Loading overlay */}
-            {isLoading && (
-              <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            {/* Rewards Display - MODIFIED */}
+            {isStaked && (
+              <div className="absolute bottom-1 right-1 bg-primary/80 text-primary-foreground text-[10px] px-1.5 py-0.5 rounded flex items-center shadow-md backdrop-blur-sm">
+                <CoinsIcon className="w-2.5 h-2.5 mr-1" />
+                Rewards: {formattedLiveReward}
               </div>
             )}
-            
-            {/* Success Overlay - Added */}
-            <AnimatePresence>
-              {showSuccessOverlay && (
-                <motion.div 
-                  initial={{ opacity: 0 }} 
-                  animate={{ opacity: 1 }} 
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="absolute inset-0 bg-green-500/80 flex flex-col items-center justify-center text-white font-bold text-center p-2"
-                >
-                  <p className="text-lg">Staked! ✅</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-            
-          </div>
-        </CardContent>
-        <CardFooter className="p-4 flex flex-col gap-2">
-          {isStaked ? (
-            <>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <ClockIcon size={12} />
-                <span>Staked {formatTimeAgo(nft.stakedAt)}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <CoinsIcon size={12} />
-                <span>{nft.currentReward?.toFixed(2) || '0'} POOKIE earned</span>
-              </div>
-              <Button 
-                variant="destructive" 
-                size="sm"
-                className="w-full"
-                disabled={isLoading || unstakingInProgress}
-                onClick={() => handleUnstakeNft(nft.mint)}
-              >
-                {isLoading ? 'Unstaking...' : 'Unstake & Claim'}
-              </Button>
-            </>
-          ) : (
-            <Button 
-              variant="default" 
-              size="sm"
-              className="w-full"
-              disabled={isLoading || stakingInProgress}
-              onClick={() => handleStakeNft(nft)}
-            >
-              {isLoading ? 'Staking...' : 'Stake NFT'}
-            </Button>
-          )}
-        </CardFooter>
-      </Card>
+          </CardHeader>
+          <CardContent className="p-3 flex-grow">
+            {/* ... existing code ... */}
+          </CardContent>
+          <CardFooter className="p-3 pt-0">
+            {isStaked ? (
+              // ... existing code ...
+            ) : (
+              // ... existing code ...
+            )}
+          </CardFooter>
+        </Card>
+      </motion.div>
     );
   });
   NftCard.displayName = 'NftCard';

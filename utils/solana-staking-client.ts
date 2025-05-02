@@ -494,23 +494,26 @@ export async function getStakingInfo(
 
     // Decode account data (assuming specific layout)
     const data = Buffer.from(accountInfo.data);
-    if (data.length < 8 + 32 + 32 + 8) {
-      console.error('Staking account data length too short to decode staked_at');
+    if (data.length < 8 + 32 + 32 + 8 + 8) { 
+      console.error('Staking account data length too short to decode timestamps');
       return { ...defaultInfo, isStaked: true };
     }
     const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
     const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
+    const lastClaimedAtTimestampBN = new BN(data.slice(8 + 32 + 32 + 8, 8 + 32 + 32 + 8 + 8), 'le');
+    const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
-    // Calculate days staked and rewards
+    // Calculate days staked and rewards based on the later timestamp
     const now = Math.floor(Date.now() / 1000);
-    const secondsStaked = Math.max(0, now - stakedAtTimestamp);
-    const daysStaked = secondsStaked / (60 * 60 * 24);
-    const currentReward = daysStaked * DAILY_REWARD_RATE;
+    const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
+    const secondsSinceStart = Math.max(0, now - startTime);
+    const daysSinceStart = secondsSinceStart / (60 * 60 * 24);
+    const currentReward = daysSinceStart * DAILY_REWARD_RATE;
 
     return {
       isStaked: true,
       stakedAt: stakedAtTimestamp,
-      daysStaked: parseFloat(daysStaked.toFixed(2)),
+      daysStaked: parseFloat(daysSinceStart.toFixed(2)),
       currentReward: Math.floor(currentReward)
     };
 
@@ -634,21 +637,24 @@ export async function getMultipleStakingInfo(
         // NFT is staked
         try {
           const data = Buffer.from(accountInfo.data);
-          if (data.length < 8 + 32 + 32 + 8) {
+          if (data.length < 8 + 32 + 32 + 8 + 8) { 
             console.error(`Staking account data length for mint ${mint} too short.`);
             resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0 });
           } else {
             const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
+            const lastClaimedAtTimestampBN = new BN(data.slice(8 + 32 + 32 + 8, 8 + 32 + 32 + 8 + 8), 'le');
+            const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
-            const secondsStaked = Math.max(0, now - stakedAtTimestamp);
-            const daysStaked = secondsStaked / (60 * 60 * 24);
-            const currentReward = daysStaked * DAILY_REWARD_RATE;
+            const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
+            const secondsSinceStart = Math.max(0, now - startTime);
+            const daysSinceStart = secondsSinceStart / (60 * 60 * 24);
+            const currentReward = daysSinceStart * DAILY_REWARD_RATE;
 
             resultsMap.set(mint, {
               isStaked: true,
               stakedAt: stakedAtTimestamp,
-              daysStaked: parseFloat(daysStaked.toFixed(2)),
+              daysStaked: parseFloat(daysSinceStart.toFixed(2)),
               currentReward: Math.floor(currentReward)
             });
           }

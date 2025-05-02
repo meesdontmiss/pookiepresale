@@ -479,7 +479,7 @@ fn claim_rewards(
 
     // TODO: Make reward rate configurable (e.g., read from another account)
     const SECONDS_PER_DAY: i64 = 86400; // 24 * 60 * 60
-    const REWARD_RATE_PER_DAY: u64 = 10 * 10u64.pow(9); // 10 tokens per day (assuming 9 decimals)
+    const REWARD_RATE_PER_DAY: u64 = 250 * 10u64.pow(9); // 250 tokens per day (assuming 9 decimals)
 
     if current_time <= last_claim_time {
         msg!("No time elapsed since last claim, no rewards to claim.");
