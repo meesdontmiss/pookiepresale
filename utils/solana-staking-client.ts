@@ -662,9 +662,9 @@ export async function getMultipleStakingInfo(
             resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
           } else {
             // Account exists AND data length is correct, decode timestamps
-            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le');
+            const stakedAtTimestampBN = new BN(data.slice(72, 80), 'le');
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
-            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le');
+            const lastClaimedAtTimestampBN = new BN(data.slice(80, 88), 'le');
             const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
             const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
