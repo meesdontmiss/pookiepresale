@@ -490,52 +490,84 @@ export async function getStakingInfo(
     currentReward: 0
   };
 
+  console.log(`[getStakingInfo] Called for mint: ${nftMint.toString()}, wallet: ${wallet.toString()}`);
+
   try {
     if (!connection) throw new Error('Connection object is required');
     if (!wallet) throw new Error('Wallet public key is required');
     if (!nftMint) throw new Error('NFT mint public key is required');
 
-    // Check if NFT is staked
-    const isStakedResult = await isNftStaked(connection, wallet, nftMint);
-    if (!isStakedResult) return defaultInfo;
+    console.log(`[getStakingInfo] Finding PDA for mint ${nftMint.toString()} and wallet ${wallet.toString()}`);
+    const [stakingAccount, bump] = await findStakeAccountAddress(nftMint, wallet);
+    console.log(`[getStakingInfo] Stake Account PDA: ${stakingAccount.toString()}, Bump: ${bump}`);
 
-    // Find the staking account PDA
-    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
-
-    // Get account info
+    console.log(`[getStakingInfo] Fetching account info for PDA: ${stakingAccount.toString()}`);
     const accountInfo = await connection.getAccountInfo(stakingAccount);
-    if (!accountInfo) return defaultInfo;
 
-    // Decode account data (NOW we know accountInfo is not null)
-    const data = Buffer.from(accountInfo.data);
-    if (data.length < 81) { // Use expected length 81
-      console.error(`Staking account data length (${data.length}) for mint ${nftMint.toString()} is less than expected (81). Returning default info.`);
-      // Still return isStaked=true because account exists, but data is bad/short
-      return { ...defaultInfo, isStaked: true }; 
+    if (!accountInfo) {
+      console.warn(`[getStakingInfo] Stake Account PDA ${stakingAccount.toString()} NOT FOUND on-chain.`);
+      return defaultInfo;
     }
 
-    // Decode account data (assuming specific layout)
-    const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
-    const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
-    const lastClaimedAtTimestampBN = new BN(data.slice(8 + 32 + 32 + 8, 8 + 32 + 32 + 8 + 8), 'le');
-    const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
+    console.log(`[getStakingInfo] Account data length: ${accountInfo.data.length}`);
+    if (accountInfo.data.length < 89) { // Check against Anchor's 89 bytes (8 + 81)
+      console.error(`[getStakingInfo] Account data length is less than expected (89).`);
+      // Return default but indicate staked=true as account exists
+      return { ...defaultInfo, isStaked: true };
+    }
 
-    // Calculate days staked and rewards based on the later timestamp
-    const now = Math.floor(Date.now() / 1000);
+    // Anchor adds 8-byte discriminator, so our packed data starts at byte 8
+    const packedData = accountInfo.data.slice(8); // Slice off discriminator
+
+    // Decode timestamps relative to the start of packedData (offset 0)
+    const stakeTimeOffset = 72 - 8; // 64 relative to start of accountInfo.data, NOT packedData
+    const lastClaimTimeOffset = 80 - 8; // 72 relative to start of accountInfo.data, NOT packedData
+
+    // --- Adjusting offsets based on packedData slice ---
+    const stakeTimeOffsetCorrected = 64; // 72 (absolute) - 8 (discriminator)
+    const lastClaimTimeOffsetCorrected = 72; // 80 (absolute) - 8 (discriminator)
+
+    if (packedData.length < lastClaimTimeOffsetCorrected + 8) {
+        console.error(`[getStakingInfo] packedData buffer too short to read last_claim_time at offset ${lastClaimTimeOffsetCorrected}. Length: ${packedData.length}`);
+         return { ...defaultInfo, isStaked: true }; // Indicate staked but data is bad
+    }
+
+    const stakedAtTimestampBN_debug = new BN(packedData.slice(stakeTimeOffsetCorrected, stakeTimeOffsetCorrected + 8), 'le');
+    const stakedAtTimestamp_debug = stakedAtTimestampBN_debug.toNumber();
+
+    const lastClaimedAtTimestampBN_debug = new BN(packedData.slice(lastClaimTimeOffsetCorrected, lastClaimTimeOffsetCorrected + 8), 'le');
+    const lastClaimedAtTimestamp_debug = lastClaimedAtTimestampBN_debug.toNumber();
+
+    const now_debug = Math.floor(Date.now() / 1000);
+
+    console.log(`[getStakingInfo] DEBUG TIMESTAMPS for PDA ${stakingAccount.toString()}:`);
+    console.log(` - Current Timestamp (Unix): ${now_debug} (${new Date(now_debug * 1000).toISOString()})`);
+    console.log(` - Decoded staked_at (offset ${stakeTimeOffsetCorrected} in packed): ${stakedAtTimestamp_debug} (${new Date(stakedAtTimestamp_debug * 1000).toISOString()})`);
+    console.log(` - Decoded last_claimed_at (offset ${lastClaimTimeOffsetCorrected} in packed): ${lastClaimedAtTimestamp_debug} (${new Date(lastClaimedAtTimestamp_debug * 1000).toISOString()})`);
+    // --- END TEMPORARY TIMESTAMP DEBUGGING ---
+
+    // Original calculation logic using the correctly decoded values
+    const isStakedResult = true; // We know account exists if we reached here
+    const stakedAtTimestamp = stakedAtTimestamp_debug; // Use debug value
+    const lastClaimedAtTimestamp = lastClaimedAtTimestamp_debug; // Use debug value
+
+    const now = now_debug; // Use debug value
     const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
     const secondsSinceStart = Math.max(0, now - startTime);
     const daysSinceStart = secondsSinceStart / (60 * 60 * 24);
-    const currentReward = daysSinceStart * DAILY_REWARD_RATE;
+    const currentReward = Math.floor(daysSinceStart * DAILY_REWARD_RATE); // Using DAILY_REWARD_RATE constant from client
+
+    console.log(`[getStakingInfo] Calculated: startTime=${startTime}, secondsSinceStart=${secondsSinceStart}, daysSinceStart=${daysSinceStart.toFixed(4)}, rawReward=${daysSinceStart * DAILY_REWARD_RATE}, currentReward (floored)=${currentReward}`);
 
     return {
-      isStaked: true,
+      isStaked: isStakedResult,
       stakedAt: stakedAtTimestamp,
       daysStaked: parseFloat(daysSinceStart.toFixed(2)),
-      currentReward: Math.floor(currentReward)
+      currentReward: currentReward
     };
 
   } catch (error) {
-    console.error('Error getting staking info:', error);
+    console.error(`[getStakingInfo] Error getting staking info for mint ${nftMint?.toString()}:`, error);
     return defaultInfo;
   }
 }
