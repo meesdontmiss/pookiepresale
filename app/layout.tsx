@@ -1,13 +1,18 @@
-// "use client" // REMOVE: Cannot be client component if exporting metadata
+"use client" // ADD: Needs to be client component for hook
 
 import type { Metadata } from "next"
-// import { usePathname } from 'next/navigation' // REMOVE: Cannot use hooks here
+import { usePathname } from 'next/navigation' // ADD: Import hook
 import { WalletProvider } from '@/components/wallet-provider'
 import { GlobalSoundProvider } from '@/components/global-sound-provider'
 import { BodyClassManager } from "@/components/layout/body-class-manager"
 // import "@/lib/rpc-patch"
 import "./globals.css"
-// import { cn } from "@/lib/utils"; // REMOVE: Not needed here anymore
+import { cn } from "@/lib/utils"; // ADD: For conditional classes
+
+// NOTE: Metadata export might cause issues in Client Components.
+// Consider moving metadata to page.tsx files if this becomes a problem.
+// For now, let's see if it works.
+// export const metadata: Metadata = { ... }; // Keep existing metadata for now
 
 export const metadata: Metadata = {
   title: "$POOKIE",
@@ -55,13 +60,16 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // REMOVE hook logic
-  // const pathname = usePathname(); 
-  // const isStakingPage = pathname === '/staking';
+  // ADD hook logic
+  const pathname = usePathname(); 
+  const isStakingPage = pathname === '/staking';
+
+  // Determine cursor class based on path
+  const cursorClass = isStakingPage ? 'cursor-default' : 'cursor-middle-finger';
 
   return (
-    // Restore original class
-    <html lang="en" className="cursor-middle-finger">
+    // Apply conditional class
+    <html lang="en" className={cn(cursorClass)}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -83,8 +91,8 @@ export default function RootLayout({
         <meta name="twitter:site" content="@Pookiethepeng" />
         <meta name="twitter:image:alt" content="Pookie Memecoin" />
       </head>
-      {/* Restore original class */}
-      <body className="min-h-screen bg-background antialiased cursor-middle-finger">
+      {/* Apply conditional class */}
+      <body className={cn("min-h-screen bg-background antialiased", cursorClass)}>
         <WalletProvider>
           <BodyClassManager />
           <GlobalSoundProvider />

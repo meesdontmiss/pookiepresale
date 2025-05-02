@@ -257,13 +257,6 @@ body {
   background: hsl(var(--primary));
 }
 
-/* Attempt to fix NFT image flickering on cursor hover */
-/* Promote images potentially within NFT cards to their own layer */
-[data-nft-card-image] {
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0); /* For Safari/older WebKit */
-}
-
 /* Special effects */
 .glow-effect {
   animation: glow 1.5s ease-in-out infinite alternate;

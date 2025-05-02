@@ -654,7 +654,6 @@ export default function OnChainNftStaking() {
                           )}
                           {/* Image */}
             <Image
-                              data-nft-card-image=""
                               key={imageUrl} // Force re-render if URL changes
                               src={imageUrl || '/images/pookie_load.gif'} // Fallback to placeholder
                               alt={nft.name || 'Pookie NFT'}
