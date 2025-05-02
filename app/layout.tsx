@@ -14,46 +14,8 @@ import { cn } from "@/lib/utils"; // ADD: For conditional classes
 // For now, let's see if it works.
 // export const metadata: Metadata = { ... }; // Keep existing metadata for now
 
-export const metadata: Metadata = {
-  title: "$POOKIE",
-  description: "Pookie - Damn Pookie?! How u waddle like dat?",
-  keywords: ["Pookie", "PookieMafia", "memecoin", "cryptocurrency", "Solana", "SOL", "presale"],
-  authors: [{ name: "PookieMafia" }],
-  creator: "PookieMafia",
-  publisher: "PookieMafia",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://plugpenguin.com"),
-  // Open Graph metadata
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    url: process.env.NEXT_PUBLIC_SITE_URL || "https://plugpenguin.com",
-    title: "$POOKIE - The Memecoin Revolution",
-    description: "Pookie - Damn Pookie?! How u waddle like dat?",
-    siteName: "$POOKIE",
-    images: [
-      {
-        url: "/images/GARY-PACK.png",
-        width: 1200,
-        height: 630,
-        alt: "Pookie Social Share Image",
-      },
-    ],
-  },
-  // Twitter metadata
-  twitter: {
-    card: "summary_large_image",
-    title: "$POOKIE",
-    description: "Pookie - Damn Pookie?! How u waddle like dat?",
-    images: ["/images/GARY-PACK.png"],
-    creator: "@PookieThePeng",
-  },
-  // Other metadata
-  robots: {
-    index: true,
-    follow: true,
-  },
-  themeColor: "#00ff88",
-}
+// Remove the export of metadata here
+// export const metadata: Metadata = { ... };
 
 export default function RootLayout({
   children,
