@@ -30,7 +30,8 @@ import {
   hasEnoughSol,
   StakingError,
   STAKING_PROGRAM_ID,
-  REWARDS_TOKEN_MINT // Assuming REWARDS_TOKEN_MINT is exported from here
+  REWARDS_TOKEN_MINT, // Assuming REWARDS_TOKEN_MINT is exported from here
+  findStakeAccountAddress // <-- Added import
 } from '@/utils/solana-staking-client' // Make sure REWARDS_TOKEN_MINT is exported
 import { ErrorBoundary } from 'react-error-boundary'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
@@ -189,6 +190,32 @@ export default function OnChainNftStaking() {
       const mintAddresses = baseNfts.map(nft => new PublicKey(nft.mint));
       const stakingInfoMap = await getMultipleStakingInfo(connection, publicKey, mintAddresses);
       console.log("Staking Info Map:", stakingInfoMap);
+
+      // --- TEMPORARY GHOST NFT CHECK --- 
+      console.log("--- Checking for ghost staked NFTs ---");
+      const stakeAccountPromises = mintAddresses.map(mint => findStakeAccountAddress(mint, publicKey)); // Reuse findStakeAccountAddress from client
+      const stakeAccountAddressesWithBumps = await Promise.all(stakeAccountPromises);
+      const stakeAccountAddresses = stakeAccountAddressesWithBumps.map(([address]: [PublicKey, number]) => address); // <-- Added type annotation
+      
+      const ghostCheckPromises = mintAddresses.map(async (mint, index) => {
+        const mintString = mint.toString();
+        const stakeAccountAddress = stakeAccountAddresses[index];
+        const clientThinksStaked = stakingInfoMap.get(mintString)?.isStaked;
+
+        if (clientThinksStaked) {
+          try {
+            const accountInfo = await connection.getAccountInfo(stakeAccountAddress);
+            if (!accountInfo) {
+              console.warn(`👻 GHOST NFT DETECTED: Mint ${mintString} is marked staked by client, but PDA ${stakeAccountAddress.toString()} NOT FOUND on-chain!`);
+            }
+          } catch (err) {
+            console.error(`Error checking PDA ${stakeAccountAddress.toString()} for mint ${mintString}:`, err);
+          }
+        }
+      });
+      await Promise.all(ghostCheckPromises);
+      console.log("--- Finished ghost NFT check ---");
+      // --- END TEMPORARY GHOST NFT CHECK ---
 
       const nftsWithStakingStatus: StakedNFT[] = baseNfts.map(nft => {
         const stakingInfo = stakingInfoMap.get(nft.mint) || {
@@ -351,23 +378,41 @@ export default function OnChainNftStaking() {
   };
 
   const handleClaimRewards = async (nftMint: string) => {
-      if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
-      if (!hasSufficientBalance) return toast({ title: "Insufficient SOL", variant: "destructive" });
-      if (claimingInProgress) return;
+      console.log(`[handleClaimRewards] Initiated for mint: ${nftMint}`);
+      if (!publicKey || !connection || !signTransaction) {
+          console.error("[handleClaimRewards] Wallet not ready.");
+          return toast({ title: "Wallet not ready", variant: "destructive" });
+      }
+      if (!hasSufficientBalance) {
+          console.error("[handleClaimRewards] Insufficient SOL balance.");
+          return toast({ title: "Insufficient SOL", variant: "destructive" });
+      }
+      if (claimingInProgress) {
+          console.warn("[handleClaimRewards] Claim already in progress.");
+          return;
+      }
 
       // Find the NFT to check live reward before claiming
       const nft = stakedNfts.find(n => n.mint === nftMint);
-      if (!nft) return; // Should not happen
+      if (!nft) {
+          console.error(`[handleClaimRewards] NFT object not found in stakedNfts state for mint: ${nftMint}`);
+          return; // Should not happen
+      }
 
       // Calculate live reward to check if > 0
       const startTime = nft.lastClaimTime && nft.lastClaimTime > 0 ? nft.lastClaimTime : nft.stakedAt;
-      if (!startTime) return toast({ title: "Cannot calculate reward", description: "Missing stake time.", variant: "destructive" });
+      if (!startTime) {
+          console.error(`[handleClaimRewards] Missing stake time for mint: ${nftMint}`);
+          return toast({ title: "Cannot calculate reward", description: "Missing stake time.", variant: "destructive" });
+      }
 
       const nowSeconds = Date.now() / 1000;
       const elapsedSeconds = BigInt(Math.max(0, Math.floor(nowSeconds - startTime)));
       const currentAccruedReward = elapsedSeconds * REWARD_RATE_PER_SECOND_WITH_DECIMALS;
+      console.log(`[handleClaimRewards] Calculated live reward for ${nftMint}: ${currentAccruedReward.toString()} (Rate: ${REWARD_RATE_PER_SECOND_WITH_DECIMALS}, Elapsed: ${elapsedSeconds})`);
 
       if (currentAccruedReward <= BigInt(0)) {
+          console.warn(`[handleClaimRewards] No rewards yet for ${nftMint}. Live reward: ${currentAccruedReward.toString()}`);
           toast({ title: "No Rewards Yet", description: "Not enough time has passed to claim rewards." });
           return;
       }
@@ -378,9 +423,11 @@ export default function OnChainNftStaking() {
       setSelectedNftMint(nftMint);
       setLoadingStates(prev => ({ ...prev, [nftMint]: true }));
       setError(null);
+      console.log(`[handleClaimRewards] Calling createClaimRewardsTransaction for ${nftMint}...`);
 
       try {
           const transaction = await createClaimRewardsTransaction(connection, publicKey, new PublicKey(nftMint));
+          console.log(`[handleClaimRewards] Transaction created for ${nftMint}. Calling sendTransaction...`, transaction);
           const signature = await sendTransaction(transaction, connection, { publicKey, signTransaction });
 
           playSound(SUCCESS_SOUND_PATH, 0.3);
@@ -389,16 +436,17 @@ export default function OnChainNftStaking() {
           await fetchWalletData(); // Refresh data
 
       } catch (error: any) {
+          console.error(`[handleClaimRewards] Error during claim process for ${nftMint}:`, error);
           playSound(ERROR_SOUND_PATH, 0.3);
           console.error('Error claiming rewards:', error);
           const errorMessage = error.message || 'Claiming rewards failed.';
           toast({ title: "Claiming Error", description: errorMessage, variant: "destructive" });
           setError(errorMessage);
-    } finally {
+      } finally {
           setClaimingInProgress(false);
           setSelectedNftMint("");
           setLoadingStates(prev => ({ ...prev, [nftMint]: false }));
-    }
+      }
   };
 
   const handleClaimAllRewards = async () => {

@@ -302,32 +302,42 @@ export async function createClaimRewardsTransaction(
   wallet: PublicKey,
   nftMint: PublicKey
 ): Promise<Transaction> {
+  console.log(`[createClaimRewardsTransaction] Initiated for mint: ${nftMint.toString()}`);
   try {
     // Validate inputs
     if (!connection) throw new Error('Connection object is required');
     if (!wallet) throw new Error('Wallet public key is required');
     if (!nftMint) throw new Error('NFT mint public key is required');
 
+    console.log("[createClaimRewardsTransaction] Checking SOL balance...");
     // Verify wallet has sufficient SOL for the transaction
     if (!await hasEnoughSol(connection, wallet)) {
+      console.error("[createClaimRewardsTransaction] Insufficient SOL balance check failed.");
       throw new Error(StakingError.InsufficientFunds);
     }
 
+    console.log(`[createClaimRewardsTransaction] Checking if NFT ${nftMint.toString()} is staked...`);
     // Check if NFT is staked (needed to claim rewards)
     if (!await isNftStaked(connection, wallet, nftMint)) {
+      console.error(`[createClaimRewardsTransaction] NFT ${nftMint.toString()} is NOT staked.`);
       throw new Error('NFT must be staked to claim rewards.');
     }
 
+    console.log(`[createClaimRewardsTransaction] Getting staking info for ${nftMint.toString()}...`);
     // Get staking info to check if there are rewards to claim
     const stakingInfo = await getStakingInfo(connection, wallet, nftMint);
+    console.log(`[createClaimRewardsTransaction] Staking info for ${nftMint.toString()}:`, stakingInfo);
     if (stakingInfo.currentReward <= 0) {
+      console.error(`[createClaimRewardsTransaction] No rewards available to claim for ${nftMint.toString()}. Current reward: ${stakingInfo.currentReward}`);
       throw new Error('No rewards available to claim.');
     }
 
+    console.log(`[createClaimRewardsTransaction] Deriving PDAs for ${nftMint.toString()}...`);
     // Derive required accounts
     const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
     const [programAuthority] = await findProgramAuthority();
 
+    console.log(`[createClaimRewardsTransaction] Getting user reward token account for ${wallet.toString()}...`);
     // Get user's token account for the reward mint
     const userRewardTokenAccount = await getAssociatedTokenAddress(
       REWARDS_TOKEN_MINT,
@@ -341,12 +351,14 @@ export async function createClaimRewardsTransaction(
     transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
     transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
 
+    console.log(`[createClaimRewardsTransaction] Ensuring user reward token account exists for ${wallet.toString()}...`);
     // Ensure user has the reward token account
     await ensureTokenAccount(connection, wallet, REWARDS_TOKEN_MINT, transaction);
 
     // Instruction data
     const instructionData = Buffer.from([StakingInstruction.ClaimRewards]);
 
+    console.log(`[createClaimRewardsTransaction] Adding claim instruction for ${nftMint.toString()}...`);
     // Add claim rewards instruction
     transaction.add(new TransactionInstruction({
       keys: [
@@ -364,12 +376,14 @@ export async function createClaimRewardsTransaction(
       data: instructionData,
     }));
 
+    console.log(`[createClaimRewardsTransaction] Successfully created transaction for ${nftMint.toString()}.`);
     return transaction;
 
   } catch (error) {
-    console.error('Error creating claim rewards transaction:', error);
+    console.error(`[createClaimRewardsTransaction] Error for mint ${nftMint?.toString()}:`, error);
+    console.error('Error creating claim rewards transaction:', error); // Keep original log too
     if (error instanceof Error && Object.values(StakingError).includes(error.message as StakingError)) {
-      throw error; 
+      throw error;
     }
     throw new Error(StakingError.UnknownError);
   }
