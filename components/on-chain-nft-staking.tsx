@@ -188,25 +188,35 @@ export default function OnChainNftStaking() {
 
       const mintAddresses = baseNfts.map(nft => new PublicKey(nft.mint));
       const stakingInfoMap = await getMultipleStakingInfo(connection, publicKey, mintAddresses);
-      console.log("Fetched staking info map:", stakingInfoMap);
+      console.log("Staking Info Map:", stakingInfoMap);
 
       const nftsWithStakingStatus: StakedNFT[] = baseNfts.map(nft => {
-        const stakingInfo = stakingInfoMap.get(nft.mint) || {
-          isStaked: false, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0
+        const stakingInfo = stakingInfoMap.get(nft.mint) || { 
+          isStaked: false, 
+          stakedAt: 0, 
+          daysStaked: 0, 
+          currentReward: 0, 
+          lastClaimTime: 0 // Add default
         };
         return {
-          ...nft,
+          ...nft, // Base NFT data
+          // Spread all properties from stakingInfo
           isStaked: stakingInfo.isStaked,
           stakedAt: stakingInfo.stakedAt,
           // daysStaked: stakingInfo.daysStaked, // Not directly used now
           currentReward: stakingInfo.currentReward, // Keep fetched reward if needed elsewhere
-          lastClaimTime: stakingInfo.lastClaimTime,
+          lastClaimTime: stakingInfo.lastClaimTime, // Add lastClaimTime here
           metadataFetched: false, // Needs implementation if fetching extra metadata
         };
       });
 
+      console.log("NFTs with Staking Status (Before Filter):", nftsWithStakingStatus);
+
+      const filteredStakedNfts = nftsWithStakingStatus.filter(nft => nft.isStaked);
+      console.log("Filtered Staked NFTs:", filteredStakedNfts);
+
       setWalletNfts(nftsWithStakingStatus.filter(nft => !nft.isStaked));
-      setStakedNfts(nftsWithStakingStatus.filter(nft => nft.isStaked));
+      setStakedNfts(filteredStakedNfts);
       // Total rewards will be calculated by the useEffect hook based on stakedNfts
 
       console.log("Finished processing NFT data.");
