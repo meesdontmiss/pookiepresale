@@ -785,7 +785,7 @@ export default function OnChainNftStaking() {
                                   variant="secondary"
                                   size="sm"
                                   className="flex-1"
-                                  disabled={isActionLoading || isUnstakingThis || isClaimingThis || BigInt(liveReward) <= BigInt(0)} // Disable if no reward
+                                  disabled={isActionLoading || isUnstakingThis || isClaimingThis /* || BigInt(liveReward) <= BigInt(0) */ }
                                   onClick={(e) => { e.stopPropagation(); handleClaimRewards(nft.mint); }} // Prevent card selection click
                               >
                                   {isClaimingThis ? 'Claiming...' : 'Claim'}
