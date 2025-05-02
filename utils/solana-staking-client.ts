@@ -638,13 +638,18 @@ export async function getMultipleStakingInfo(
         // NFT is staked
         try {
           const data = Buffer.from(accountInfo.data);
-          if (data.length < 8 + 32 + 32 + 8 + 8) { 
-            console.error(`Staking account data length for mint ${mint} too short.`);
+          // Corrected length check (1 + 32 + 32 + 8 + 8 = 81)
+          const expectedDataLength = 81; 
+          if (data.length < expectedDataLength) { 
+            console.error(`Staking account data length for mint ${mint} (${data.length}) is less than expected (${expectedDataLength}).`);
             resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
           } else {
-            const stakedAtTimestampBN = new BN(data.slice(8 + 32 + 32, 8 + 32 + 32 + 8), 'le');
+            // Corrected slice offsets based on Rust struct
+            // stake_time: offset 65, size 8
+            const stakedAtTimestampBN = new BN(data.slice(65, 65 + 8), 'le');
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
-            const lastClaimedAtTimestampBN = new BN(data.slice(8 + 32 + 32 + 8, 8 + 32 + 32 + 8 + 8), 'le');
+            // last_claim_time: offset 73, size 8
+            const lastClaimedAtTimestampBN = new BN(data.slice(73, 73 + 8), 'le');
             const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
             const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
