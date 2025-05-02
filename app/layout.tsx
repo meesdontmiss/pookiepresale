@@ -10,7 +10,7 @@ import { BodyClassManager } from "@/components/layout/body-class-manager"
 import "./globals.css"
 // REVERT: Remove cn import
 // import { cn } from "@/lib/utils";
-import CursorController from './cursor-controller' // ADD: Import new component
+import CursorController from '@/components/layout/cursor-controller'
 
 // ADD: Restore metadata export
 export const metadata: Metadata = {
@@ -93,7 +93,7 @@ export default function RootLayout({
         <WalletProvider>
           <BodyClassManager />
           <GlobalSoundProvider />
-          <CursorController /> {/* ADD: Render the controller component */} 
+          <CursorController />
           {children}
         </WalletProvider>
       </body>
