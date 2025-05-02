@@ -67,8 +67,8 @@ export default function StakingPage() {
         const dy = lastMousePosition.y - prevPosition.current.y;
         const currentVelocity = Math.sqrt(dx * dx + dy * dy) * 0.1;
         
-        setMousePosition(lastMousePosition);
-        setVelocity(Math.min(currentVelocity, 8));
+        // setMousePosition(lastMousePosition); // TEMP: Comment out to prevent re-renders
+        // setVelocity(Math.min(currentVelocity, 8)); // TEMP: Comment out to prevent re-renders
         
         // Only add trail points when moving with some velocity
         if (currentVelocity > 0.5) {
@@ -151,8 +151,8 @@ export default function StakingPage() {
           />
         )}
         
-        {/* Reduced particle count for better performance - COMMENTING OUT TRAIL */}
-        {/* {trailRef.current.map((point, i) => {
+        {/* Reduced particle count for better performance */}
+        {trailRef.current.map((point, i) => {
           // Size based on position in trail (newer points are larger)
           const size = 4 - i;
           
@@ -166,7 +166,7 @@ export default function StakingPage() {
               opacity={0.3}
             />
           );
-        })} */}
+        })}
       </svg>
 
       {/* 3D Scene as Background - takes up the full screen */}
