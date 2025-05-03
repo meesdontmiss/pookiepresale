@@ -490,76 +490,56 @@ export async function getStakingInfo(
     currentReward: 0
   };
 
-  console.log(`[getStakingInfo] Called for mint: ${nftMint.toString()}, wallet: ${wallet.toString()}`);
-
   try {
     if (!connection) throw new Error('Connection object is required');
     if (!wallet) throw new Error('Wallet public key is required');
     if (!nftMint) throw new Error('NFT mint public key is required');
 
-    console.log(`[getStakingInfo] Finding PDA for mint ${nftMint.toString()} and wallet ${wallet.toString()}`);
     const [stakingAccount, bump] = await findStakeAccountAddress(nftMint, wallet);
-    console.log(`[getStakingInfo] Stake Account PDA: ${stakingAccount.toString()}, Bump: ${bump}`);
-
-    console.log(`[getStakingInfo] Fetching account info for PDA: ${stakingAccount.toString()}`);
     const accountInfo = await connection.getAccountInfo(stakingAccount);
 
     if (!accountInfo) {
-      console.warn(`[getStakingInfo] Stake Account PDA ${stakingAccount.toString()} NOT FOUND on-chain.`);
+      // Account doesn't exist, NFT is not staked
       return defaultInfo;
     }
 
-    console.log(`[getStakingInfo] Account data length: ${accountInfo.data.length}`);
+    // --- Correction for Native Program Account Size ---
     const EXPECTED_DATA_LEN = 81; // Native program uses exactly StakeAccount::LEN
     if (accountInfo.data.length < EXPECTED_DATA_LEN) { // Check against 81
-      console.error(`[getStakingInfo] Account data length is less than expected (${EXPECTED_DATA_LEN}).`);
+      console.error(`[getStakingInfo] Account data length (${accountInfo.data.length}) is less than expected (${EXPECTED_DATA_LEN}) for PDA ${stakingAccount.toString()}.`);
       // Return default but indicate staked=true as account exists
       return { ...defaultInfo, isStaked: true };
     }
 
     // Native program: data starts at byte 0
     const accountData = accountInfo.data;
-
+ 
     // Use absolute offsets based on Pack::LEN = 81
     const stakeTimeOffset = 1 + 32 + 32; // 65 (is_initialized=1 + owner=32 + nft_mint=32)
     const lastClaimTimeOffset = stakeTimeOffset + 8; // 73
-
+ 
     if (accountData.length < lastClaimTimeOffset + 8) {
-        console.error(`[getStakingInfo] accountData buffer too short to read last_claim_time at offset ${lastClaimTimeOffset}. Length: ${accountData.length}`);
-        return { ...defaultInfo, isStaked: true }; // Indicate staked but data is bad
+      console.error(`[getStakingInfo] accountData buffer too short to read last_claim_time at offset ${lastClaimTimeOffset} for PDA ${stakingAccount.toString()}. Length: ${accountData.length}`);
+      return { ...defaultInfo, isStaked: true }; // Indicate staked but data is bad
     }
-
-    const stakedAtTimestampBN_debug = new BN(accountData.slice(stakeTimeOffset, stakeTimeOffset + 8), 'le');
-    const stakedAtTimestamp_debug = stakedAtTimestampBN_debug.toNumber();
-
-    const lastClaimedAtTimestampBN_debug = new BN(accountData.slice(lastClaimTimeOffset, lastClaimTimeOffset + 8), 'le');
-    const lastClaimedAtTimestamp_debug = lastClaimedAtTimestampBN_debug.toNumber();
-
-    const now_debug = Math.floor(Date.now() / 1000);
-
-    console.log(`[getStakingInfo] DEBUG TIMESTAMPS for PDA ${stakingAccount.toString()}:`);
-    console.log(` - Current Timestamp (Unix): ${now_debug} (${new Date(now_debug * 1000).toISOString()})`);
-    console.log(` - Decoded staked_at (offset ${stakeTimeOffset} in data): ${stakedAtTimestamp_debug} (${new Date(stakedAtTimestamp_debug * 1000).toISOString()})`);
-    console.log(` - Decoded last_claimed_at (offset ${lastClaimTimeOffset} in data): ${lastClaimedAtTimestamp_debug} (${new Date(lastClaimedAtTimestamp_debug * 1000).toISOString()})`);
-    // --- END TEMPORARY TIMESTAMP DEBUGGING ---
-
-    // Original calculation logic using the correctly decoded values
-    const isStakedResult = true; // We know account exists if we reached here
-    const stakedAtTimestamp = stakedAtTimestamp_debug; // Use debug value
-    const lastClaimedAtTimestamp = lastClaimedAtTimestamp_debug; // Use debug value
-
-    const now = now_debug; // Use debug value
+ 
+    const stakedAtTimestampBN = new BN(accountData.slice(stakeTimeOffset, stakeTimeOffset + 8), 'le');
+    const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
+ 
+    const lastClaimedAtTimestampBN = new BN(accountData.slice(lastClaimTimeOffset, lastClaimTimeOffset + 8), 'le');
+    const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
+ 
+    // Calculate rewards
+    const now = Math.floor(Date.now() / 1000);
     const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
     const secondsSinceStart = Math.max(0, now - startTime);
     const daysSinceStart = secondsSinceStart / (60 * 60 * 24);
     const currentReward = Math.floor(daysSinceStart * DAILY_REWARD_RATE); // Using DAILY_REWARD_RATE constant from client
 
-    console.log(`[getStakingInfo] Calculated: startTime=${startTime}, secondsSinceStart=${secondsSinceStart}, daysSinceStart=${daysSinceStart.toFixed(4)}, rawReward=${daysSinceStart * DAILY_REWARD_RATE}, currentReward (floored)=${currentReward}`);
-
     return {
-      isStaked: isStakedResult,
+      isStaked: true, // Account exists and data length is sufficient
       stakedAt: stakedAtTimestamp,
-      daysStaked: parseFloat(daysSinceStart.toFixed(2)),
+      daysStaked: parseFloat(daysSinceStart.toFixed(2)), // Keep this for UI consistency if needed
       currentReward: currentReward
     };
 
