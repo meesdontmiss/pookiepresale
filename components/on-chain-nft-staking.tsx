@@ -135,6 +135,7 @@ export default function OnChainNftStaking() {
   const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({})
   const [isClaimingAll, setIsClaimingAll] = useState<boolean>(false);
   const [isStakingAll, setIsStakingAll] = useState<boolean>(false);
+  const [isUnstakingAll, setIsUnstakingAll] = useState<boolean>(false);
   const [selectedWalletNfts, setSelectedWalletNfts] = useState<Set<string>>(new Set());
   const [stakedSuccessMint, setStakedSuccessMint] = useState<string | null>(null);
 
@@ -504,6 +505,55 @@ export default function OnChainNftStaking() {
 
     await fetchWalletData();
     setIsClaimingAll(false);
+  };
+
+  const handleUnstakeAll = async () => {
+      if (!publicKey || !connection || !signTransaction) return toast({ title: "Wallet not ready", variant: "destructive" });
+      if (!hasSufficientBalance) return toast({ title: "Insufficient SOL", variant: "destructive" });
+      if (claimingInProgress || unstakingInProgress || isClaimingAll || isStakingAll || isUnstakingAll) return;
+
+      if (stakedNfts.length === 0) {
+          toast({ title: "No NFTs Staked", description: "There are no NFTs currently staked." });
+          return;
+      }
+
+      setIsUnstakingAll(true);
+      playSound(CLICK_SOUND_PATH, 0.3);
+      toast({ title: "Starting Unstake All...", description: `Unstaking ${stakedNfts.length} NFTs.` });
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const nft of stakedNfts) {
+          try {
+              setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
+              console.log(`[UnstakeAll] Processing ${nft.mint}`);
+              const transaction = await createUnstakeNftTransaction(connection, publicKey, new PublicKey(nft.mint));
+              await sendTransaction(transaction, connection, { publicKey, signTransaction });
+              successCount++;
+              // Optionally play a small sound per success?
+          } catch (error: any) {
+              failCount++;
+              console.error(`[UnstakeAll] Error unstaking ${nft.mint}:`, error);
+              // Don't stop the whole batch, just log the individual error
+              toast({ title: `Unstake Failed for ${nft.name || nft.mint.substring(0,6)}...`, description: error.message, variant: "destructive", duration: 3000 });
+          } finally {
+              setLoadingStates(prev => ({ ...prev, [nft.mint]: false }));
+          }
+          await new Promise(resolve => setTimeout(resolve, 600)); // Add delay between transactions
+      }
+
+      playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
+      toast({
+          title: "Unstake All Finished",
+          description: `Success: ${successCount}, Failed: ${failCount}. Refreshing...`,
+          variant: failCount > 0 ? "destructive" : "default"
+      });
+
+      await fetchWalletData();
+      setIsUnstakingAll(false);
+      // Optionally switch tab if all were successfully unstaked?
+      // if (successCount === stakedNfts.length) setActiveTab('wallet');
   };
 
   const handleStakeAll = async () => {
@@ -958,10 +1008,10 @@ export default function OnChainNftStaking() {
               </div>
             </div>
             {/* Claim All Button */}
-            <div className="mt-6 flex justify-center">
+            <div className="mt-6 flex justify-center gap-4"> {/* Use gap-4 for spacing */}
               <Button
                 onClick={handleClaimAllRewards}
-                disabled={!connected || isClaimingAll || totalRewards <= BigInt(0)} // Check BigInt total
+                disabled={!connected || isClaimingAll || isUnstakingAll || totalRewards <= BigInt(0)} // Disable if unstaking all too
                 size="lg"
                 className="bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-md hover:scale-105 transition-transform"
               >
@@ -971,6 +1021,22 @@ export default function OnChainNftStaking() {
                   `Claim All Rewards (${formattedTotalRewards} $POOKIE)`
                 )}
               </Button>
+
+              {/* --- Unstake All Button --- */}
+              <Button
+                onClick={handleUnstakeAll}
+                disabled={!connected || isUnstakingAll || isClaimingAll || stakedNfts.length === 0}
+                size="lg"
+                variant="destructive" // Destructive variant for unstaking
+                className="shadow-md hover:scale-105 transition-transform"
+              >
+                {isUnstakingAll ? (
+                  <><RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />Unstaking...</>
+                ) : (
+                  `Unstake All (${stakedNfts.length})`
+                )}
+              </Button>
+              {/* --- End Unstake All Button --- */}
             </div>
           </motion.div>
         )}
