@@ -543,6 +543,9 @@ export default function OnChainNftStaking() {
           await new Promise(resolve => setTimeout(resolve, 600)); // Add delay between transactions
       }
 
+      // Unstaking loop finished
+      setIsUnstakingAll(false); // Reset main button state immediately
+
       playSound(successCount > 0 ? SUCCESS_SOUND_PATH : ERROR_SOUND_PATH, 0.3);
       toast({
           title: "Unstake All Finished",
@@ -551,7 +554,6 @@ export default function OnChainNftStaking() {
       });
 
       await fetchWalletData();
-      setIsUnstakingAll(false);
       // Optionally switch tab if all were successfully unstaked?
       // if (successCount === stakedNfts.length) setActiveTab('wallet');
   };
