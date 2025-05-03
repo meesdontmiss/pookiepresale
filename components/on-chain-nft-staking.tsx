@@ -411,15 +411,15 @@ export default function OnChainNftStaking() {
       const currentAccruedReward = elapsedSeconds * REWARD_RATE_PER_SECOND_WITH_DECIMALS;
       console.log(`[handleClaimRewards] Calculated live reward for ${nftMint}: ${currentAccruedReward.toString()} (Rate: ${REWARD_RATE_PER_SECOND_WITH_DECIMALS}, Elapsed: ${elapsedSeconds})`);
 
-      // --- Temporarily Comment Out Frontend Reward Check ---
-      /*
+      // --- Restore Frontend Reward Check ---
+      // /*
       if (currentAccruedReward <= BigInt(0)) {
           console.warn(`[handleClaimRewards] No rewards yet for ${nftMint}. Live reward: ${currentAccruedReward.toString()}`);
           toast({ title: "No Rewards Yet", description: "Not enough time has passed to claim rewards." });
           return;
       }
-      */
-      // --- End Temporary Comment Out ---
+      // */
+      // --- End Restore Check ---
 
 
       playSound(CLICK_SOUND_PATH, 0.3);
@@ -785,7 +785,7 @@ export default function OnChainNftStaking() {
                                   variant="secondary"
                                   size="sm"
                                   className="flex-1"
-                                  disabled={isActionLoading || isUnstakingThis || isClaimingThis /* || BigInt(liveReward) <= BigInt(0) */ }
+                                  disabled={isActionLoading || isUnstakingThis || isClaimingThis || BigInt(liveReward) <= BigInt(0) }
                                   onClick={(e) => { e.stopPropagation(); handleClaimRewards(nft.mint); }} // Prevent card selection click
                               >
                                   {isClaimingThis ? 'Claiming...' : 'Claim'}
