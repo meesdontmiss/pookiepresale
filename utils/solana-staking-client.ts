@@ -510,40 +510,37 @@ export async function getStakingInfo(
     }
 
     console.log(`[getStakingInfo] Account data length: ${accountInfo.data.length}`);
-    if (accountInfo.data.length < 89) { // Check against Anchor's 89 bytes (8 + 81)
-      console.error(`[getStakingInfo] Account data length is less than expected (89).`);
+    const EXPECTED_DATA_LEN = 81; // Native program uses exactly StakeAccount::LEN
+    if (accountInfo.data.length < EXPECTED_DATA_LEN) { // Check against 81
+      console.error(`[getStakingInfo] Account data length is less than expected (${EXPECTED_DATA_LEN}).`);
       // Return default but indicate staked=true as account exists
       return { ...defaultInfo, isStaked: true };
     }
 
-    // Anchor adds 8-byte discriminator, so our packed data starts at byte 8
-    const packedData = accountInfo.data.slice(8); // Slice off discriminator
+    // Native program: data starts at byte 0
+    const accountData = accountInfo.data;
 
-    // Decode timestamps relative to the start of packedData (offset 0)
-    const stakeTimeOffset = 72 - 8; // 64 relative to start of accountInfo.data, NOT packedData
-    const lastClaimTimeOffset = 80 - 8; // 72 relative to start of accountInfo.data, NOT packedData
+    // Use absolute offsets based on Pack::LEN = 81
+    const stakeTimeOffset = 1 + 32 + 32; // 65 (is_initialized=1 + owner=32 + nft_mint=32)
+    const lastClaimTimeOffset = stakeTimeOffset + 8; // 73
 
-    // --- Adjusting offsets based on packedData slice ---
-    const stakeTimeOffsetCorrected = 64; // 72 (absolute) - 8 (discriminator)
-    const lastClaimTimeOffsetCorrected = 72; // 80 (absolute) - 8 (discriminator)
-
-    if (packedData.length < lastClaimTimeOffsetCorrected + 8) {
-        console.error(`[getStakingInfo] packedData buffer too short to read last_claim_time at offset ${lastClaimTimeOffsetCorrected}. Length: ${packedData.length}`);
-         return { ...defaultInfo, isStaked: true }; // Indicate staked but data is bad
+    if (accountData.length < lastClaimTimeOffset + 8) {
+        console.error(`[getStakingInfo] accountData buffer too short to read last_claim_time at offset ${lastClaimTimeOffset}. Length: ${accountData.length}`);
+        return { ...defaultInfo, isStaked: true }; // Indicate staked but data is bad
     }
 
-    const stakedAtTimestampBN_debug = new BN(packedData.slice(stakeTimeOffsetCorrected, stakeTimeOffsetCorrected + 8), 'le');
+    const stakedAtTimestampBN_debug = new BN(accountData.slice(stakeTimeOffset, stakeTimeOffset + 8), 'le');
     const stakedAtTimestamp_debug = stakedAtTimestampBN_debug.toNumber();
 
-    const lastClaimedAtTimestampBN_debug = new BN(packedData.slice(lastClaimTimeOffsetCorrected, lastClaimTimeOffsetCorrected + 8), 'le');
+    const lastClaimedAtTimestampBN_debug = new BN(accountData.slice(lastClaimTimeOffset, lastClaimTimeOffset + 8), 'le');
     const lastClaimedAtTimestamp_debug = lastClaimedAtTimestampBN_debug.toNumber();
 
     const now_debug = Math.floor(Date.now() / 1000);
 
     console.log(`[getStakingInfo] DEBUG TIMESTAMPS for PDA ${stakingAccount.toString()}:`);
     console.log(` - Current Timestamp (Unix): ${now_debug} (${new Date(now_debug * 1000).toISOString()})`);
-    console.log(` - Decoded staked_at (offset ${stakeTimeOffsetCorrected} in packed): ${stakedAtTimestamp_debug} (${new Date(stakedAtTimestamp_debug * 1000).toISOString()})`);
-    console.log(` - Decoded last_claimed_at (offset ${lastClaimTimeOffsetCorrected} in packed): ${lastClaimedAtTimestamp_debug} (${new Date(lastClaimedAtTimestamp_debug * 1000).toISOString()})`);
+    console.log(` - Decoded staked_at (offset ${stakeTimeOffset} in data): ${stakedAtTimestamp_debug} (${new Date(stakedAtTimestamp_debug * 1000).toISOString()})`);
+    console.log(` - Decoded last_claimed_at (offset ${lastClaimTimeOffset} in data): ${lastClaimedAtTimestamp_debug} (${new Date(lastClaimedAtTimestamp_debug * 1000).toISOString()})`);
     // --- END TEMPORARY TIMESTAMP DEBUGGING ---
 
     // Original calculation logic using the correctly decoded values
@@ -687,16 +684,26 @@ export async function getMultipleStakingInfo(
         // Account exists, NFT *might* be staked (or data is bad)
         try {
           const data = Buffer.from(accountInfo.data);
-          const expectedDataLength = 81; 
+          const expectedDataLength = 81; // Native program uses exactly StakeAccount::LEN
           if (data.length < expectedDataLength) { 
             console.error(`Staking account data length for mint ${mint} (${data.length}) is less than expected (${expectedDataLength}).`);
             // Account exists but data is short/invalid. Mark as staked but use default times.
             resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 });
           } else {
             // Account exists AND data length is correct, decode timestamps
-            const stakedAtTimestampBN = new BN(data.slice(72, 80), 'le');
+            // Use absolute offsets based on Pack::LEN = 81
+            const stakeTimeOffset = 1 + 32 + 32; // 65
+            const lastClaimTimeOffset = stakeTimeOffset + 8; // 73
+
+            if (data.length < lastClaimTimeOffset + 8) {
+                console.error(`[getMultiple] accountData buffer too short for mint ${mint}. Length: ${data.length}`);
+                resultsMap.set(mint, { isStaked: true, stakedAt: 0, daysStaked: 0, currentReward: 0, lastClaimTime: 0 }); // Staked but bad data
+                return; // Skip to next item in forEach
+            }
+
+            const stakedAtTimestampBN = new BN(data.slice(stakeTimeOffset, stakeTimeOffset + 8), 'le');
             const stakedAtTimestamp = stakedAtTimestampBN.toNumber();
-            const lastClaimedAtTimestampBN = new BN(data.slice(80, 88), 'le');
+            const lastClaimedAtTimestampBN = new BN(data.slice(lastClaimTimeOffset, lastClaimTimeOffset + 8), 'le');
             const lastClaimedAtTimestamp = lastClaimedAtTimestampBN.toNumber();
 
             const startTime = Math.max(stakedAtTimestamp, lastClaimedAtTimestamp);
