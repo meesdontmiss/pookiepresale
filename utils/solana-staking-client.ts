@@ -302,79 +302,100 @@ export async function createClaimRewardsTransaction(
   wallet: PublicKey,
   nftMint: PublicKey
 ): Promise<Transaction> {
-  console.log(`[createClaimRewardsTransaction] Initiated for mint: ${nftMint.toString()}`);
+  console.log(`[createClaimRewardsTransaction] Creating transaction for NFT: ${nftMint.toString()}`);
   try {
-    // Validate inputs
-    if (!connection) throw new Error('Connection object is required');
-    if (!wallet) throw new Error('Wallet public key is required');
-    if (!nftMint) throw new Error('NFT mint public key is required');
-
-    console.log("[createClaimRewardsTransaction] Checking SOL balance...");
-    // Verify wallet has sufficient SOL for the transaction
-    if (!await hasEnoughSol(connection, wallet)) {
-      console.error("[createClaimRewardsTransaction] Insufficient SOL balance check failed.");
-      throw new Error(StakingError.InsufficientFunds);
+    if (!connection || !wallet || !nftMint || !PROGRAM_ID || !REWARDS_TOKEN_MINT || !REWARDS_TREASURY) {
+      console.error('[createClaimRewardsTransaction] Missing required parameters or env vars.');
+      throw new Error(StakingError.MissingEnvironmentVariable);
     }
+
+    const STAKING_PROGRAM_ID = new PublicKey(PROGRAM_ID);
+    const REWARDS_TOKEN_MINT = new PublicKey(REWARDS_TOKEN_MINT);
+    const REWARDS_TREASURY = new PublicKey(REWARDS_TREASURY);
 
     console.log(`[createClaimRewardsTransaction] Checking if NFT ${nftMint.toString()} is staked...`);
-    // Check if NFT is staked (needed to claim rewards)
-    if (!await isNftStaked(connection, wallet, nftMint)) {
-      console.error(`[createClaimRewardsTransaction] NFT ${nftMint.toString()} is NOT staked.`);
-      throw new Error('NFT must be staked to claim rewards.');
-    }
-
-    console.log(`[createClaimRewardsTransaction] Getting staking info for ${nftMint.toString()}...`);
-    // Get staking info to check if there are rewards to claim
     const stakingInfo = await getStakingInfo(connection, wallet, nftMint);
     console.log(`[createClaimRewardsTransaction] Staking info for ${nftMint.toString()}:`, stakingInfo);
-    if (stakingInfo.currentReward <= 0) {
-      console.error(`[createClaimRewardsTransaction] No rewards available to claim for ${nftMint.toString()}. Current reward: ${stakingInfo.currentReward}`);
-      throw new Error('No rewards available to claim.');
+
+    if (!stakingInfo.isStaked) {
+        console.warn(`[createClaimRewardsTransaction] NFT ${nftMint.toString()} is not staked or data is invalid. Aborting claim.`);
+        throw new Error(`NFT ${nftMint.toString()} is not staked.`); // Or handle appropriately
     }
 
     console.log(`[createClaimRewardsTransaction] Deriving PDAs for ${nftMint.toString()}...`);
-    // Derive required accounts
     const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
     const [programAuthority] = await findProgramAuthority();
 
-    console.log(`[createClaimRewardsTransaction] Getting user reward token account for ${wallet.toString()}...`);
-    // Get user's token account for the reward mint
-    const userRewardTokenAccount = await getAssociatedTokenAddress(
-      REWARDS_TOKEN_MINT,
-      wallet
-    );
-
-    // Initialize transaction
     const transaction = new Transaction();
 
-    // Add compute budget instructions first
-    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100000 }));
-    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
+    // Set Compute Unit Price and Limit
+    const microLamports = 100; // Example: Set priority fee
+    const computeUnitLimit = 200000; // Standard limit
 
-    console.log(`[createClaimRewardsTransaction] Ensuring user reward token account exists for ${wallet.toString()}...`);
-    // Ensure user has the reward token account
-    await ensureTokenAccount(connection, wallet, REWARDS_TOKEN_MINT, transaction);
+    transaction.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports }));
+    transaction.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }));
 
-    // Instruction data
+
+    console.log(`[createClaimRewardsTransaction] Getting user reward token account for ${wallet.toString()}...`);
+    let userRewardTokenAccount: PublicKey;
+    try {
+      userRewardTokenAccount = await getAssociatedTokenAddress(REWARDS_TOKEN_MINT, wallet);
+      console.log(`[createClaimRewardsTransaction] Found existing user reward token account: ${userRewardTokenAccount.toString()}`);
+      // Check if account exists, if not, add create instruction
+      try {
+          await getAccount(connection, userRewardTokenAccount);
+          console.log(`[createClaimRewardsTransaction] User reward token account ${userRewardTokenAccount.toString()} exists.`);
+      } catch (error) {
+          // If account not found, add instruction to create it
+          if (error instanceof Error && (error.name === 'TokenAccountNotFoundError' || error.message.includes('could not find account'))) {
+              console.log(`[createClaimRewardsTransaction] User reward token account ${userRewardTokenAccount.toString()} not found. Adding create instruction...`);
+              transaction.add(
+                  createAssociatedTokenAccountInstruction(
+                      wallet, // payer
+                      userRewardTokenAccount, // ata
+                      wallet, // owner
+                      REWARDS_TOKEN_MINT // mint
+                  )
+              );
+          } else {
+              // Rethrow other errors
+              console.error('[createClaimRewardsTransaction] Error checking user reward token account:', error);
+              throw error;
+          }
+      }
+    } catch (error) {
+      console.error('[createClaimRewardsTransaction] Error getting/creating user reward token account:', error);
+      throw error; // Re-throw if we can't get/create the account
+    }
+
+    // --- Add deriving the user's NFT Token Account ---
+    console.log(`[createClaimRewardsTransaction] Getting user NFT token account for ${nftMint.toString()}...`);
+    const nftTokenAccount = await getAssociatedTokenAddress(nftMint, wallet);
+    console.log(`[createClaimRewardsTransaction] User NFT token account: ${nftTokenAccount.toString()}`);
+
+
+    // Instruction data for ClaimRewards
     const instructionData = Buffer.from([StakingInstruction.ClaimRewards]);
 
     console.log(`[createClaimRewardsTransaction] Adding claim instruction for ${nftMint.toString()}...`);
-    // Add claim rewards instruction
-    transaction.add(new TransactionInstruction({
-      keys: [
-        { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: stakingAccount, isSigner: false, isWritable: true },
-        { pubkey: nftMint, isSigner: false, isWritable: false },
-        { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: true },
-        { pubkey: programAuthority, isSigner: false, isWritable: false },
-        { pubkey: REWARDS_TOKEN_MINT, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-      ],
-      programId: STAKING_PROGRAM_ID,
-      data: instructionData,
-    }));
+     // Add claim rewards instruction
+      transaction.add(new TransactionInstruction({
+        keys: [
+          // Order MUST match the Rust program's expectation
+          { pubkey: wallet, isSigner: true, isWritable: true },                // 0. User Wallet (signer, writable for fees/lamport return)
+          { pubkey: nftTokenAccount, isSigner: false, isWritable: false },     // 1. User NFT Token Account (read-only, checked for ownership) <- ADDED
+          { pubkey: nftMint, isSigner: false, isWritable: false },              // 2. NFT Mint (read-only)
+          { pubkey: stakingAccount, isSigner: false, isWritable: true },         // 3. Stake Account PDA (writable to update last_claim_time)
+          { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true }, // 4. User Reward Token Account (writable to receive tokens)
+          { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: true },      // 5. Treasury Token Account (writable to send tokens from)
+          { pubkey: REWARDS_TOKEN_MINT, isSigner: false, isWritable: false },   // 6. Reward Token Mint (read-only)
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },      // 7. Token Program (read-only)
+          { pubkey: programAuthority, isSigner: false, isWritable: false },     // 8. Program Authority PDA (read-only signer for CPI)
+          { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },   // 9. Clock Sysvar (read-only)
+        ],
+        programId: STAKING_PROGRAM_ID,
+        data: instructionData,
+      }));
 
     console.log(`[createClaimRewardsTransaction] Successfully created transaction for ${nftMint.toString()}.`);
     return transaction;
