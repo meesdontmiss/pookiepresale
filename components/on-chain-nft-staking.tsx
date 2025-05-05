@@ -26,7 +26,7 @@ import { ChevronRightIcon, ChevronLeftIcon, ClockIcon, CoinsIcon, RefreshCwIcon,
 import {
   createStakeNftTransaction,
   createUnstakeNftTransaction,
-  createClaimRewardsTransaction,
+  createClaimRewardsTransaction_V2,
   getMultipleStakingInfo,
   isNftStaked,
   sendTransaction,
@@ -443,7 +443,6 @@ export default function OnChainNftStaking() {
       try {
           // Pass connection, publicKey, and signTransaction separately
           if (!publicKey || !signTransaction) { // Add extra guard just before calling
-             // This check should ideally prevent the error, but let's log right before the call too
              console.error("[handleClaimRewards] Pre-call check failed: publicKey or signTransaction missing!");
              throw new Error("Wallet properties not available at time of call.");
           }
@@ -453,7 +452,7 @@ export default function OnChainNftStaking() {
           console.log(`[handleClaimRewards] DEBUG: Type of signTransaction before call: ${typeof signTransaction}`);
           // --- End Explicit Logging ---
 
-          const transaction = await createClaimRewardsTransaction(connection, publicKey, signTransaction, new PublicKey(nftMint));
+          const transaction = await createClaimRewardsTransaction_V2(connection, publicKey, signTransaction, new PublicKey(nftMint));
           
           console.log(`[handleClaimRewards] Transaction created for ${nftMint}. Calling sendTransaction...`, transaction); // Keep original log for now
           
@@ -540,7 +539,7 @@ export default function OnChainNftStaking() {
       try {
         setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
         console.log(`Claiming rewards for ${nft.mint}...`);
-              const transaction = await createClaimRewardsTransaction(connection, publicKey, signTransaction, new PublicKey(nft.mint));
+              const transaction = await createClaimRewardsTransaction_V2(connection, publicKey, signTransaction, new PublicKey(nft.mint));
         await sendTransaction(transaction, connection, { publicKey, signTransaction });
         successCount++;
       } catch (error: any) {

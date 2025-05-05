@@ -27,6 +27,8 @@ import {
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import { Buffer } from 'buffer';
+// Import the base error if needed, but define the function type manually
+import { WalletSignTransactionError } from '@solana/wallet-adapter-base';
 
 // Constants
 // This is the correct program ID for mainnet deployment
@@ -81,6 +83,9 @@ export enum StakingError {
 // Transaction timeouts and retries
 const TX_TIMEOUT = 60000; // 60 seconds
 const MAX_RETRIES = 3;
+
+// Define the expected function signature for signTransaction
+type WalletSignTransactionFunction = (transaction: Transaction) => Promise<Transaction>;
 
 /**
  * Find the stake account address for a specific NFT and wallet
@@ -166,10 +171,11 @@ export async function ensureTokenAccount(
  */
 async function ensureAtaExists(
   connection: Connection,
-  wallet: { publicKey: PublicKey, signTransaction: (tx: Transaction) => Promise<Transaction> },
+  publicKey: PublicKey,
+  signTransaction: WalletSignTransactionFunction,
   mint: PublicKey
 ): Promise<PublicKey> {
-  const ata = await getAssociatedTokenAddress(mint, wallet.publicKey);
+  const ata = await getAssociatedTokenAddress(mint, publicKey);
   console.log(`[ensureAtaExists] Checking for ATA ${ata.toString()} for mint ${mint.toString()}`);
 
   try {
@@ -182,9 +188,9 @@ async function ensureAtaExists(
       console.log(`[ensureAtaExists] ATA ${ata.toString()} not found. Creating...`);
       const transaction = new Transaction().add(
         createAssociatedTokenAccountInstruction(
-          wallet.publicKey, // payer
+          publicKey, // payer
           ata,
-          wallet.publicKey, // owner
+          publicKey, // owner
           mint
         )
       );
@@ -192,8 +198,8 @@ async function ensureAtaExists(
       try {
         // Need to sign and send this creation transaction separately
         console.log(`[ensureAtaExists] Sending transaction to create ATA ${ata.toString()}...`);
-        // Use the main sendTransaction function for consistency (includes retries, etc.)
-        const signature = await sendTransaction(transaction, connection, wallet);
+        // Pass individual properties to sendTransaction
+        const signature = await sendTransaction(transaction, connection, { publicKey, signTransaction }); 
         console.log(`[ensureAtaExists] Successfully created ATA ${ata.toString()} with tx ${signature}`);
         return ata;
       } catch (creationError) {
@@ -346,28 +352,30 @@ export async function createUnstakeNftTransaction(
 /**
  * Create a transaction to claim staking rewards
  */
-export async function createClaimRewardsTransaction(
+export async function createClaimRewardsTransaction_V2(
   connection: Connection,
-  wallet: { publicKey: PublicKey, signTransaction: (tx: Transaction) => Promise<Transaction> },
+  publicKey: PublicKey,
+  signTransaction: WalletSignTransactionFunction,
   nftMint: PublicKey
 ): Promise<Transaction> {
   console.log(`[createClaimRewardsTransaction] Initiated for mint: ${nftMint.toString()}`);
   try {
-    // Validate inputs
+    // Validate inputs - update check
     if (!connection) throw new Error('Connection object is required');
-    if (!wallet || !wallet.publicKey || !wallet.signTransaction) throw new Error('Full wallet object required (publicKey, signTransaction)');
+    if (!publicKey || !signTransaction) throw new Error('Wallet publicKey and signTransaction function required');
     if (!nftMint) throw new Error('NFT mint public key is required');
 
     // --- Pre-check/Create Reward ATA --- 
-    console.log(`[createClaimRewardsTransaction] Ensuring user reward token account exists for wallet ${wallet.publicKey.toString()}...`);
-    const userRewardTokenAccount = await ensureAtaExists(connection, wallet, REWARDS_TOKEN_MINT);
+    console.log(`[createClaimRewardsTransaction] Ensuring user reward token account exists for wallet ${publicKey.toString()}...`);
+    // Pass individual properties to ensureAtaExists
+    const userRewardTokenAccount = await ensureAtaExists(connection, publicKey, signTransaction, REWARDS_TOKEN_MINT);
     console.log(`[createClaimRewardsTransaction] User reward token account confirmed: ${userRewardTokenAccount.toString()}`);
     // --- End Pre-check ---
 
     console.log("[createClaimRewardsTransaction] Checking SOL balance...");
     // Verify wallet has sufficient SOL for the transaction (Claim TX doesn't pay rent anymore)
     // Keep a basic check for fees
-    const balance = await connection.getBalance(wallet.publicKey);
+    const balance = await connection.getBalance(publicKey);
     if (balance < 5000 * 2) { // Rough estimate for claim fees (x2 buffer)
         console.error("[createClaimRewardsTransaction] Insufficient SOL balance for transaction fees.");
         throw new Error(StakingError.InsufficientFunds);
@@ -375,14 +383,14 @@ export async function createClaimRewardsTransaction(
 
     console.log(`[createClaimRewardsTransaction] Checking if NFT ${nftMint.toString()} is staked...`);
     // Check if NFT is staked (needed to claim rewards)
-    if (!await isNftStaked(connection, wallet.publicKey, nftMint)) {
+    if (!await isNftStaked(connection, publicKey, nftMint)) {
       console.error(`[createClaimRewardsTransaction] NFT ${nftMint.toString()} is NOT staked.`);
       throw new Error('NFT must be staked to claim rewards.');
     }
 
     console.log(`[createClaimRewardsTransaction] Getting staking info for ${nftMint.toString()}...`);
     // Get staking info to check if there are rewards to claim
-    const stakingInfo = await getStakingInfo(connection, wallet.publicKey, nftMint);
+    const stakingInfo = await getStakingInfo(connection, publicKey, nftMint);
     console.log(`[createClaimRewardsTransaction] Staking info for ${nftMint.toString()}:`, stakingInfo);
     if (stakingInfo.currentReward <= 0) {
       console.error(`[createClaimRewardsTransaction] No rewards available to claim for ${nftMint.toString()}. Current reward: ${stakingInfo.currentReward}`);
@@ -391,14 +399,14 @@ export async function createClaimRewardsTransaction(
 
     console.log(`[createClaimRewardsTransaction] Deriving PDAs for ${nftMint.toString()}...`);
     // Derive required accounts
-    const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet.publicKey);
+    const [stakingAccount] = await findStakeAccountAddress(nftMint, publicKey);
     const [programAuthority] = await findProgramAuthority();
 
     console.log(`[createClaimRewardsTransaction] Getting user NFT token account for ${nftMint.toString()}...`);
     // Get user's token account for the NFT mint (needed for validation in program)
     const userNftTokenAccount = await getAssociatedTokenAddress(
       nftMint,
-      wallet.publicKey
+      publicKey // Use publicKey directly
     );
 
     // Initialize transaction
@@ -415,7 +423,7 @@ export async function createClaimRewardsTransaction(
     // Add claim rewards instruction
     transaction.add(new TransactionInstruction({
       keys: [
-        { pubkey: wallet.publicKey, isSigner: true, isWritable: true },          // 0. user
+        { pubkey: publicKey, isSigner: true, isWritable: true },          // 0. user (use publicKey directly)
         { pubkey: userNftTokenAccount, isSigner: false, isWritable: false }, // 1. user_nft_token_account
         { pubkey: nftMint, isSigner: false, isWritable: false },      // 2. nft_mint 
         { pubkey: stakingAccount, isSigner: false, isWritable: true }, // 3. stake_account (PDA)
@@ -449,7 +457,7 @@ export async function createClaimRewardsTransaction(
 export async function sendTransaction(
   transaction: Transaction,
   connection: Connection,
-  wallet: { publicKey: PublicKey, signTransaction: (tx: Transaction) => Promise<Transaction> },
+  wallet: { publicKey: PublicKey, signTransaction: WalletSignTransactionFunction }, 
   commitment: Commitment = 'confirmed'
 ): Promise<string> {
   let retries = MAX_RETRIES;
