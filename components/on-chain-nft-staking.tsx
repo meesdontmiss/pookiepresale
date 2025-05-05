@@ -379,6 +379,12 @@ export default function OnChainNftStaking() {
   };
 
   const handleClaimRewards = async (nftMint: string) => {
+      // --- Add Logging Immediately --- 
+      console.log(`[handleClaimRewards] Function called for mint: ${nftMint}`);
+      console.log(`[handleClaimRewards] Initial publicKey:`, publicKey?.toString());
+      console.log(`[handleClaimRewards] Initial signTransaction type:`, typeof signTransaction);
+      // --- End Immediate Logging ---
+
       console.log(`[handleClaimRewards] Initiated for mint: ${nftMint}`);
       if (!publicKey || !connection || !signTransaction) {
           console.error("[handleClaimRewards] Wallet not ready.");
