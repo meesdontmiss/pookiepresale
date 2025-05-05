@@ -432,21 +432,54 @@ export async function sendTransaction(
       
       if (confirmation.value.err) {
         console.error('Transaction confirmation error:', confirmation.value.err);
+        // Check if the error is BlockhashNotFound to provide a specific message
+        if (confirmation.value.err.toString().includes('BlockhashNotFound')) {
+             console.error("Confirmation failed: Blockhash expired before confirmation.");
+             // Let the retry loop handle this
+             throw new Error('BlockhashNotFound'); // Throw specific error to trigger retry
+        }
         throw new Error('Transaction failed confirmation');
       }
       
       console.log('Transaction confirmed:', signature);
       return signature;
 
-    } catch (error) {
+    } catch (error: any) { // Catch any error, including signing rejection or sendRawTransaction errors
       console.error(`Transaction failed (attempt ${MAX_RETRIES - retries + 1}/${MAX_RETRIES}):`, error);
       retries--;
-      if (retries === 0) {
-        if (error instanceof Error) throw error;
-        throw new Error(StakingError.TransactionFailed);
+
+      // If the error is specifically BlockhashNotFound (from sendRawTransaction OR our confirmation check)
+      // OR if it's a signing rejection (which might be due to internal simulation failing on blockhash)
+      // then retrying might help.
+      const isBlockhashError = error?.message?.includes('BlockhashNotFound');
+      const isSignError = error?.name === 'WalletSignTransactionError'; // Covers user rejection / wallet internal errors
+      
+      if (isBlockhashError || isSignError) {
+         if (retries > 0) {
+             const retryDelay = 1500;
+             console.log(`Retrying transaction in ${retryDelay}ms due to ${isBlockhashError ? 'blockhash issue' : 'signing issue'}...`);
+             await new Promise(resolve => setTimeout(resolve, retryDelay)); 
+             continue; // Continue to next iteration to fetch new blockhash and try signing again
+         } else {
+             console.error(`Max retries reached for ${isBlockhashError ? 'blockhash issue' : 'signing issue'}.`);
+             // Throw a more specific error if possible
+             if (isBlockhashError) throw new Error('Failed due to expired blockhash after multiple retries.');
+             if (isSignError) throw new Error('Failed due to wallet signing issue after multiple retries.');
+             // Fall through to generic error if type isn't clear
+         }
+      } else if (retries === 0) {
+          // Rethrow the original error if it wasn't blockhash/signing and retries are exhausted
+          console.error('Max retries reached for other error type.');
+          if (error instanceof Error) throw error;
+          throw new Error(StakingError.TransactionFailed);
       }
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // If it's another error type and retries remain, wait and retry
+      if (retries > 0) {
+          const retryDelay = 1500;
+          console.log(`Retrying transaction in ${retryDelay}ms due to other error...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
     }
   }
   throw new Error(StakingError.TransactionFailed);
