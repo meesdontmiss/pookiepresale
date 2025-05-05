@@ -369,16 +369,16 @@ export async function createClaimRewardsTransaction(
     // Add claim rewards instruction
     transaction.add(new TransactionInstruction({
       keys: [
-        { pubkey: wallet, isSigner: true, isWritable: true },
-        { pubkey: userNftTokenAccount, isSigner: false, isWritable: false },
-        { pubkey: stakingAccount, isSigner: false, isWritable: true },
-        { pubkey: nftMint, isSigner: false, isWritable: false },
-        { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: true },
-        { pubkey: programAuthority, isSigner: false, isWritable: false },
-        { pubkey: REWARDS_TOKEN_MINT, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: wallet, isSigner: true, isWritable: true },          // 0. user
+        { pubkey: userNftTokenAccount, isSigner: false, isWritable: false }, // 1. user_nft_token_account
+        { pubkey: nftMint, isSigner: false, isWritable: false },      // 2. nft_mint 
+        { pubkey: stakingAccount, isSigner: false, isWritable: true }, // 3. stake_account (PDA)
+        { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true }, // 4. user_reward_token_account
+        { pubkey: REWARDS_TREASURY, isSigner: false, isWritable: true }, // 5. treasury_account 
+        { pubkey: REWARDS_TOKEN_MINT, isSigner: false, isWritable: false }, // 6. reward_token_mint
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // 7. token_program
+        { pubkey: programAuthority, isSigner: false, isWritable: false }, // 8. program_authority (PDA)
+        { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false }, // 9. clock_sysvar
       ],
       programId: STAKING_PROGRAM_ID,
       data: instructionData,
