@@ -433,8 +433,16 @@ export default function OnChainNftStaking() {
       try {
           // Pass connection, publicKey, and signTransaction separately
           if (!publicKey || !signTransaction) { // Add extra guard just before calling
+             // This check should ideally prevent the error, but let's log right before the call too
+             console.error("[handleClaimRewards] Pre-call check failed: publicKey or signTransaction missing!");
              throw new Error("Wallet properties not available at time of call.");
           }
+          
+          // --- Add Explicit Logging Here ---
+          console.log(`[handleClaimRewards] DEBUG: Type of publicKey before call: ${typeof publicKey}, Value:`, publicKey?.toString());
+          console.log(`[handleClaimRewards] DEBUG: Type of signTransaction before call: ${typeof signTransaction}`);
+          // --- End Explicit Logging ---
+
           const transaction = await createClaimRewardsTransaction(connection, publicKey, signTransaction, new PublicKey(nftMint));
           
           console.log(`[handleClaimRewards] Transaction created for ${nftMint}. Calling sendTransaction...`, transaction); // Keep original log for now
