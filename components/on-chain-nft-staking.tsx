@@ -1,5 +1,9 @@
 "use client"
 
+// --- Force Reload Log ---
+console.log("--- Loading OnChainNftStaking component - v2 ---");
+// --- End Force Reload Log ---
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useWallet, useConnection } from '@solana/wallet-adapter-react'
 import {
