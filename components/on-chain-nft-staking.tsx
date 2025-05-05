@@ -431,8 +431,46 @@ export default function OnChainNftStaking() {
       console.log(`[handleClaimRewards] Calling createClaimRewardsTransaction for ${nftMint}...`);
 
       try {
-          const transaction = await createClaimRewardsTransaction(connection, publicKey, new PublicKey(nftMint));
-          console.log(`[handleClaimRewards] Transaction created for ${nftMint}. Calling sendTransaction...`, transaction);
+          // Pass connection, publicKey, and signTransaction separately
+          if (!publicKey || !signTransaction) { // Add extra guard just before calling
+             throw new Error("Wallet properties not available at time of call.");
+          }
+          const transaction = await createClaimRewardsTransaction(connection, publicKey, signTransaction, new PublicKey(nftMint));
+          
+          console.log(`[handleClaimRewards] Transaction created for ${nftMint}. Calling sendTransaction...`, transaction); // Keep original log for now
+          
+          // --- Simulate Transaction before signing (Keep simulation from previous steps) ---
+          console.log("Simulating transaction...");
+          const { value: simulationResult } = await connection.simulateTransaction(transaction);
+          console.log("[handleClaimRewards] Simulation raw response:", simulationResult);
+
+          if (simulationResult.err) {
+            console.error("[handleClaimRewards] Simulation failed! Error:", simulationResult.err);
+            console.error("[handleClaimRewards] Simulation Logs:", simulationResult.logs);
+            let detailedError = "Simulation failed. Check console logs for details.";
+            if (simulationResult.logs) {
+                const logMessages = simulationResult.logs.join('\n');
+                const customProgramErrorMatch = logMessages.match(/Custom program error: (.*)/);
+                const insufficientFundsMatch = logMessages.toLowerCase().includes("insufficient funds");
+                const panicMatch = logMessages.match(/panic!:\s*(.*)/);
+                if (customProgramErrorMatch && customProgramErrorMatch[1]) {
+                    detailedError = `Program Error: ${customProgramErrorMatch[1]}`;
+                } else if (insufficientFundsMatch) {
+                    detailedError = "Insufficient funds, likely in the treasury or for rent.";
+                } else if (panicMatch && panicMatch[1]) {
+                    detailedError = `Program Panic: ${panicMatch[1]}`;
+                } else if (typeof simulationResult.err === 'object' && simulationResult.err !== null && 'InstructionError' in simulationResult.err) {
+                    const instructionError = (simulationResult.err as any).InstructionError;
+                    if (Array.isArray(instructionError) && instructionError.length === 2) {
+                       detailedError = `Instruction ${instructionError[0]} Error Code: ${instructionError[1]}`;
+                    }
+                }
+            }
+            throw new Error(`Transaction Simulation Failed: ${detailedError}`);
+          }
+          console.log(`[handleClaimRewards] Simulation successful for ${nftMint}. Proceeding to sign...`);
+          // --- End Simulation ---
+          
           const signature = await sendTransaction(transaction, connection, { publicKey, signTransaction });
 
           playSound(SUCCESS_SOUND_PATH, 0.3);
@@ -484,7 +522,7 @@ export default function OnChainNftStaking() {
       try {
         setLoadingStates(prev => ({ ...prev, [nft.mint]: true }));
         console.log(`Claiming rewards for ${nft.mint}...`);
-              const transaction = await createClaimRewardsTransaction(connection, publicKey, new PublicKey(nft.mint));
+              const transaction = await createClaimRewardsTransaction(connection, publicKey, signTransaction, new PublicKey(nft.mint));
         await sendTransaction(transaction, connection, { publicKey, signTransaction });
         successCount++;
       } catch (error: any) {
