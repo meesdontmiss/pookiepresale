@@ -337,6 +337,13 @@ export async function createClaimRewardsTransaction(
     const [stakingAccount] = await findStakeAccountAddress(nftMint, wallet);
     const [programAuthority] = await findProgramAuthority();
 
+    console.log(`[createClaimRewardsTransaction] Getting user NFT token account for ${nftMint.toString()}...`);
+    // Get user's token account for the NFT mint (needed for validation in program)
+    const userNftTokenAccount = await getAssociatedTokenAddress(
+      nftMint,
+      wallet
+    );
+
     console.log(`[createClaimRewardsTransaction] Getting user reward token account for ${wallet.toString()}...`);
     // Get user's token account for the reward mint
     const userRewardTokenAccount = await getAssociatedTokenAddress(
@@ -363,6 +370,7 @@ export async function createClaimRewardsTransaction(
     transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: wallet, isSigner: true, isWritable: true },
+        { pubkey: userNftTokenAccount, isSigner: false, isWritable: false },
         { pubkey: stakingAccount, isSigner: false, isWritable: true },
         { pubkey: nftMint, isSigner: false, isWritable: false },
         { pubkey: userRewardTokenAccount, isSigner: false, isWritable: true },
